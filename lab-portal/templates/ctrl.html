@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}Lab control · Lab Portal{% endblock %}
+{% block head %}
+<style>
+  .sub-warn {
+    background: rgba(245,158,11,0.1);
+    border: 1px solid rgba(245,158,11,0.3);
+    border-radius: 10px;
+    padding: 12px 18px;
+    margin-bottom: 24px;
+    color: #fde68a;
+    font-size: 13px;
+  }
+  .sub-warn b { color: #fcd34d; }
+
+  .group {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 22px;
+    margin-bottom: 16px;
+    box-shadow: var(--shadow-sm);
+  }
+  .group-title {
+    font-size: 12px; font-weight: 700;
+    color: var(--text-mute);
+    text-transform: uppercase; letter-spacing: 0.1em;
+    margin-bottom: 12px;
+  }
+
+  .node-row {
+    display: grid;
+    grid-template-columns: 200px 1fr auto;
+    gap: 16px;
+    padding: 10px 12px;
+    align-items: center;
+    border-radius: 8px;
+    transition: background 0.15s;
+  }
+  .node-row:hover { background: var(--panel-soft); }
+  .node-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text);
+  }
+  .node-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-mute);
+  }
+
+  .state {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 12px; font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .state .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .state.running { color: #6ee7b7; } .state.running .dot { background: #10b981; box-shadow: 0 0 8px rgba(16,185,129,0.6); }
+  .state.exited  { color: #fca5a5; } .state.exited .dot  { background: #ef4444; }
+  .state.created { color: #fcd34d; } .state.created .dot { background: #f59e0b; }
+  .state.missing { color: var(--text-mute); } .state.missing .dot { background: var(--text-mute); }
+
+  .actions { display: flex; gap: 6px; }
+  .btn-act {
+    background: var(--panel-soft);
+    border: 1px solid var(--border-strong);
+    color: var(--text-soft);
+    padding: 6px 14px;
+    border-radius: 7px;
+    font-size: 12px; font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+    min-width: 70px;
+  }
+  .btn-act:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+  .btn-stop  { background: rgba(239,68,68,0.15); color: #fca5a5; border-color: rgba(239,68,68,0.4); }
+  .btn-stop:hover  { background: rgba(239,68,68,0.3); }
+  .btn-start { background: rgba(16,185,129,0.15); color: #6ee7b7; border-color: rgba(16,185,129,0.4); }
+  .btn-start:hover { background: rgba(16,185,129,0.3); }
+  .btn-rest  { background: rgba(99,102,241,0.15); color: #c4b5fd; border-color: rgba(99,102,241,0.4); }
+  .btn-rest:hover  { background: rgba(99,102,241,0.3); }
+  .btn-act:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  .hosts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 10px;
+  }
+  .hosts-grid .node-row {
+    border: 1px solid var(--border);
+    grid-template-columns: 1fr auto auto;
+    padding: 8px 12px;
+  }
+
+  .toast {
+    position: fixed; bottom: 24px; right: 24px;
+    background: var(--panel);
+    border: 1px solid var(--border-strong);
+    border-left: 4px solid var(--indigo);
+    border-radius: 10px;
+    padding: 14px 20px;
+    color: var(--text);
+    font-size: 13px;
+    box-shadow: var(--shadow-lg);
+    max-width: 380px;
+    opacity: 0; transform: translateY(20px);
+    transition: all 0.3s;
+    pointer-events: none;
+    z-index: 200;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.ok   { border-left-color: var(--emerald); }
+  .toast.err  { border-left-color: var(--rose); }
+  .toast pre { font-size: 11px; margin: 6px 0 0 0; padding: 6px 10px; background: var(--bg); border-radius: 5px; }
+</style>
+{% endblock %}
+{% block content %}
+<h1>Lab control</h1>
+<div class="sub">Stop, start, or restart any router or host PC · perfect for BGP/EVPN failure drills</div>
+
+<div class="sub-warn">
+  <b>Heads up:</b> cEOS containers occasionally come back with stuck veth state after a stop/start cycle —
+  BGP sessions can stay <code>Idle(NoIf)</code> on the peer side. If that happens, SSH to the lab host and run
+  <code>sudo systemctl restart clab-vxlan-evpn.service</code> for a clean redeploy (~5 min).
+</div>
+
+{% for group, items in grouped %}
+<div class="group">
+  <div class="group-title">{{ group }}</div>
+  {% for name, state, ip, asn in items %}
+  <div class="node-row" data-node="{{ name }}">
+    <div>
+      <div class="node-name">{{ name }}</div>
+      <div class="node-meta">{{ ip }} · {{ asn }}</div>
+    </div>
+    <div>
+      <span class="state {{ state }}"><span class="dot"></span>{{ state }}</span>
+    </div>
+    <div class="actions">
+      <button class="btn-act btn-stop"  onclick="act('stop','{{ name }}')">Stop</button>
+      <button class="btn-act btn-start" onclick="act('start','{{ name }}')">Start</button>
+      <button class="btn-act btn-rest"  onclick="act('restart','{{ name }}')">Restart</button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+
+<div class="group">
+  <div class="group-title">host PCs (32) — drops a tenant endpoint</div>
+  <div class="hosts-grid">
+    {% for name, state, leaf, vrf in host_items %}
+    <div class="node-row" data-node="{{ name }}">
+      <div>
+        <div class="node-name">{{ name }}</div>
+        <div class="node-meta">{{ leaf }} · {{ vrf }}</div>
+      </div>
+      <div><span class="state {{ state }}"><span class="dot"></span>{{ state }}</span></div>
+      <div class="actions">
+        <button class="btn-act btn-stop" onclick="act('stop','{{ name }}')">Stop</button>
+        <button class="btn-act btn-start" onclick="act('start','{{ name }}')">Start</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const toast = document.getElementById('toast');
+function showToast(msg, kind='ok', detail='') {
+  toast.className = 'toast show ' + kind;
+  toast.innerHTML = msg + (detail ? `<pre>${detail}</pre>` : '');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(()=>toast.classList.remove('show'), 4500);
+}
+
+async function act(action, node) {
+  const buttons = document.querySelectorAll(`[data-node="${node}"] button`);
+  buttons.forEach(b => b.disabled = true);
+  showToast(`${action} ${node}…`, 'ok');
+  try {
+    const r = await fetch(`/ctrl/action/${action}/${node}`, {method: 'POST'});
+    const j = await r.json();
+    if (j.ok) {
+      showToast(`✓ ${action} ${node}`, 'ok', j.output);
+      setTimeout(refreshStates, 800);
+    } else {
+      showToast(`✗ failed: ${j.error}`, 'err');
+    }
+  } catch(e) {
+    showToast('fetch failed: ' + e, 'err');
+  } finally {
+    buttons.forEach(b => b.disabled = false);
+  }
+}
+
+async function refreshStates() {
+  try {
+    const r = await fetch('/ctrl/states');
+    const states = await r.json();
+    document.querySelectorAll('.node-row').forEach(row => {
+      const name = row.getAttribute('data-node');
+      const st = states[name] || 'missing';
+      const span = row.querySelector('.state');
+      span.className = 'state ' + st;
+      span.innerHTML = `<span class="dot"></span>${st}`;
+    });
+  } catch(e) {}
+}
+setInterval(refreshStates, 5000);
+</script>
+{% endblock %}

@@ -1,0 +1,7 @@
+lab-portal/captures/*.pcap
+lab-portal/venv/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+clab-vxlan-evpn/

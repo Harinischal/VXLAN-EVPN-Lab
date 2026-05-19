@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Lab Portal{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #0b0d12;
+    --bg-grad: radial-gradient(circle at 15% 0%, rgba(99,102,241,0.18) 0%, transparent 45%),
+               radial-gradient(circle at 85% 0%, rgba(236,72,153,0.14) 0%, transparent 45%),
+               radial-gradient(ellipse at bottom, rgba(16,185,129,0.07) 0%, transparent 50%),
+               linear-gradient(180deg, #0b0d12 0%, #0a0c10 100%);
+    --panel: #14171f;
+    --panel-soft: #1a1e28;
+    --panel-hover: #1f2330;
+    --border: #2a2f3c;
+    --border-strong: #3a4050;
+    --text: #f1f5f9;
+    --text-soft: #cbd5e1;
+    --text-mute: #94a3b8;
+    --text-dim: #64748b;
+
+    --indigo: #6366f1;
+    --violet: #8b5cf6;
+    --pink:   #ec4899;
+    --amber:  #f59e0b;
+    --emerald:#10b981;
+    --cyan:   #06b6d4;
+    --rose:   #f43f5e;
+    --blue:   #3b82f6;
+
+    --accent: var(--indigo);
+    --ok:     var(--emerald);
+    --warn:   var(--amber);
+    --down:   var(--rose);
+
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 10px 30px rgba(0,0,0,0.5);
+    --shadow-glow: 0 0 0 1px rgba(99,102,241,0.3), 0 10px 30px -10px rgba(99,102,241,0.4);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg-grad);
+    background-attachment: fixed;
+    color: var(--text);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: -0.011em;
+  }
+
+  /* ── Nav ── */
+  .nav {
+    background: rgba(20,23,31,0.75);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 32px;
+    display: flex; align-items: center; gap: 8px;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .brand {
+    font-size: 17px; font-weight: 800;
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #6366f1 0%, #ec4899 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    margin-right: 20px;
+  }
+  .nav a {
+    color: var(--text-soft); text-decoration: none;
+    padding: 8px 14px; border-radius: 8px;
+    font-weight: 500; font-size: 14px;
+    transition: all 0.15s;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .nav a:hover { background: var(--panel-soft); color: var(--text); }
+  .nav a.active {
+    background: linear-gradient(135deg, rgba(99,102,241,0.1) 0%, rgba(236,72,153,0.1) 100%);
+    color: var(--indigo); font-weight: 600;
+  }
+  .nav .right {
+    margin-left: auto;
+    color: var(--text-mute);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    display: flex; gap: 12px; align-items: center;
+  }
+  .nav .pill {
+    padding: 3px 9px; border-radius: 99px;
+    background: var(--panel-soft); color: var(--text-soft);
+  }
+  .nav .pill .dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--emerald); margin-right: 5px; vertical-align: middle;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16,185,129,0.4); }
+    50%      { opacity: 0.7; box-shadow: 0 0 0 6px rgba(16,185,129,0); }
+  }
+
+  /* ── Layout ── */
+  .container { max-width: 1480px; margin: 0 auto; padding: 36px 32px 80px; }
+  h1 {
+    font-size: 28px; font-weight: 700; margin: 0 0 6px 0;
+    letter-spacing: -0.025em;
+  }
+  h2 {
+    font-size: 13px; font-weight: 600; color: var(--text-mute);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    margin: 32px 0 16px 0;
+  }
+  .sub { color: var(--text-soft); font-size: 15px; margin-bottom: 28px; }
+
+  /* ── Panel ── */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+    margin-bottom: 18px;
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* ── Forms ── */
+  pre, code { font-family: 'JetBrains Mono', monospace; }
+  pre {
+    background: var(--panel-soft);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--text);
+    margin: 0;
+  }
+  button, input[type=submit] {
+    background: linear-gradient(135deg, var(--indigo) 0%, var(--violet) 100%);
+    color: #fff;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+    box-shadow: var(--shadow-sm);
+    letter-spacing: -0.01em;
+  }
+  button:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); filter: brightness(1.05); }
+  button:disabled { background: var(--text-mute); cursor: not-allowed; transform: none; }
+  select, input[type=text], input[type=number] {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    min-width: 200px;
+    transition: all 0.15s;
+  }
+  select:focus, input:focus {
+    outline: none;
+    border-color: var(--indigo);
+    box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
+  }
+  select:hover, input:hover { border-color: var(--text-mute); }
+</style>
+{% block head %}{% endblock %}
+</head>
+<body>
+<nav class="nav">
+  <div class="brand">VXLAN/EVPN · Lab Portal</div>
+  <a href="/" {% if request.path == "/" %}class="active"{% endif %}>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    Topology
+  </a>
+  <a href="/lg" {% if request.path == "/lg" %}class="active"{% endif %}>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+    Looking Glass
+  </a>
+  <a href="/cap" {% if request.path == "/cap" %}class="active"{% endif %}>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2v20M2 12h20M5 5l14 14M19 5L5 19"/></svg>
+    Packet Capture
+  </a>
+  <a href="/ctrl" {% if request.path == "/ctrl" %}class="active"{% endif %}>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+    Lab Control
+  </a>
+  <a href="/peer" {% if request.path == "/peer" %}class="active"{% endif %}>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M6 8.5 L12 15.5 M18 8.5 L12 15.5 M6 6 L18 6"/></svg>
+    Peering
+  </a>
+  <a href="/tenants" {% if request.path == "/tenants" %}class="active"{% endif %}>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-4 0v2M8 7V5a2 2 0 0 1 4 0"/></svg>
+    Tenants
+  </a>
+  <div class="right">
+    <span class="pill"><span class="dot"></span>lab up</span>
+    <span>192.168.236.139</span>
+  </div>
+</nav>
+<div class="container">
+{% block content %}{% endblock %}
+</div>
+</body>
+</html>

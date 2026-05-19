@@ -1,0 +1,213 @@
+# GlobalNet — VXLAN/EVPN Spine-Leaf with BORDER LEAVES + INTERNET (containerlab v3)
+#
+# Topology:
+#   ISP (cEOS AS65100, simulated upstream)
+#   ↓ eBGP (active/active)
+#   border-leaf-01  border-leaf-02     (cEOS, AS65021/65022, redundant uplink)
+#                            ↕  EVPN
+#   spine-01     spine-02      (AS65000, RR)
+#                            ↕  EVPN
+#   leaf-01..04                    (AS65001..65004, regular VTEPs)
+#                            ↕
+#   pc1..pc12 (T1+T2)  +  pc13..pc16 (T3)  16 hosts total
+#
+# VRFs (each leaf incl. border):
+#   TENANT1  VLAN10 + VLAN20  (10.10.10/24, 10.20.20/24)  + internet via border
+#   TENANT2  VLAN30           (172.16.30/24)              internal only
+#   TENANT3  VLAN50           (172.16.50/24)              internal only
+#
+# Management: containerlab default bridge (172.20.20.0/24).
+
+name: vxlan-evpn
+
+mgmt:
+  network: clab-mgmt
+  ipv4-subnet: 172.20.20.0/24
+  ipv4-gw:     172.20.20.1
+
+topology:
+
+  kinds:
+    arista_ceos:
+      image: ceos:4.36.0.1F
+      memory: 1536MB
+    linux:
+      image: nicolaka/netshoot:latest
+
+  nodes:
+    # ─── Super-spines (5-stage Clos, tier-1) ────────────────────────────────
+    super-spine-01: { kind: arista_ceos, mgmt-ipv4: 172.20.20.91,  startup-config: configs/SUPER-SPINE-01.cfg }
+    super-spine-02: { kind: arista_ceos, mgmt-ipv4: 172.20.20.92,  startup-config: configs/SUPER-SPINE-02.cfg }
+
+    # ─── Spines (pod-1, tier-2) ─────────────────────────────────────────────
+    spine-01:       { kind: arista_ceos, mgmt-ipv4: 172.20.20.101, startup-config: configs/SPINE1.cfg }
+    spine-02:       { kind: arista_ceos, mgmt-ipv4: 172.20.20.102, startup-config: configs/SPINE2.cfg }
+
+    # ─── Spines (pod-2, tier-2) — NEW ───────────────────────────────────────
+    spine-03:       { kind: arista_ceos, mgmt-ipv4: 172.20.20.103, startup-config: configs/SPINE3.cfg }
+    spine-04:       { kind: arista_ceos, mgmt-ipv4: 172.20.20.104, startup-config: configs/SPINE4.cfg }
+
+    # ─── Pod-1 leaves (with host access ports) ──────────────────────────────
+    leaf-01:        { kind: arista_ceos, mgmt-ipv4: 172.20.20.111, startup-config: configs/LEAF1.cfg }
+    leaf-02:        { kind: arista_ceos, mgmt-ipv4: 172.20.20.112, startup-config: configs/LEAF2.cfg }
+    leaf-03:        { kind: arista_ceos, mgmt-ipv4: 172.20.20.113, startup-config: configs/LEAF3.cfg }
+    leaf-04:        { kind: arista_ceos, mgmt-ipv4: 172.20.20.114, startup-config: configs/LEAF4.cfg }
+
+    # ─── Pod-2 leaves (with host access ports) — NEW ────────────────────────
+    leaf-05:        { kind: arista_ceos, mgmt-ipv4: 172.20.20.131, startup-config: configs/LEAF5.cfg }
+    leaf-06:        { kind: arista_ceos, mgmt-ipv4: 172.20.20.132, startup-config: configs/LEAF6.cfg }
+    leaf-07:        { kind: arista_ceos, mgmt-ipv4: 172.20.20.133, startup-config: configs/LEAF7.cfg }
+    leaf-08:        { kind: arista_ceos, mgmt-ipv4: 172.20.20.134, startup-config: configs/LEAF8.cfg }
+
+    # ─── Border leaves (in pod-1 — ISP uplink in TENANT1) ───────────────────
+    border-leaf-01: { kind: arista_ceos, mgmt-ipv4: 172.20.20.121, startup-config: configs/BORDER-LEAF-01.cfg }
+    border-leaf-02: { kind: arista_ceos, mgmt-ipv4: 172.20.20.122, startup-config: configs/BORDER-LEAF-02.cfg }
+
+    # ─── Simulated ISPs ─────────────────────────────────────────────────────
+    # isp-01: AS 65100, isp-02: AS 65200 — eBGP downlink to border leaves,
+    # eBGP uplink to frr-inet (which feeds them ~500 internet prefixes).
+    isp-01:         { kind: arista_ceos, mgmt-ipv4: 172.20.20.250, startup-config: configs/ISP.cfg }
+    isp-02:         { kind: arista_ceos, mgmt-ipv4: 172.20.20.251, startup-config: configs/ISP2.cfg }
+
+    # ─── Simulated INTERNET (FRR, AS 65999) — NEW ───────────────────────────
+    # Peers eBGP with both ISPs, advertises ~500 prefixes (Cloudflare, Google,
+    # AWS-shaped ranges). Provides realistic-scale BGP table at the edge.
+    frr-inet:
+      kind: linux
+      image: quay.io/frrouting/frr:9.1.0
+      mgmt-ipv4: 172.20.20.252
+      binds:
+        - configs/frr-inet/frr.conf:/etc/frr/frr.conf
+        - configs/frr-inet/daemons:/etc/frr/daemons
+      exec:
+        - sysctl -w net.ipv4.ip_forward=1
+        - /usr/lib/frr/frrinit.sh start
+
+    # ─── TENANT1 hosts (8 hosts: VLAN10 + VLAN20 × 4 leaves) ────────────────
+    pc1:  { kind: linux, exec: ["ip address add 10.10.10.101/24 dev eth1", "ip route replace default via 10.10.10.1 dev eth1"] }
+    pc2:  { kind: linux, exec: ["ip address add 10.20.20.101/24 dev eth1", "ip route replace default via 10.20.20.1 dev eth1"] }
+    pc3:  { kind: linux, exec: ["ip address add 10.10.10.102/24 dev eth1", "ip route replace default via 10.10.10.1 dev eth1"] }
+    pc4:  { kind: linux, exec: ["ip address add 10.20.20.102/24 dev eth1", "ip route replace default via 10.20.20.1 dev eth1"] }
+    pc5:  { kind: linux, exec: ["ip address add 10.10.10.103/24 dev eth1", "ip route replace default via 10.10.10.1 dev eth1"] }
+    pc6:  { kind: linux, exec: ["ip address add 10.20.20.103/24 dev eth1", "ip route replace default via 10.20.20.1 dev eth1"] }
+    pc7:  { kind: linux, exec: ["ip address add 10.10.10.104/24 dev eth1", "ip route replace default via 10.10.10.1 dev eth1"] }
+    pc8:  { kind: linux, exec: ["ip address add 10.20.20.104/24 dev eth1", "ip route replace default via 10.20.20.1 dev eth1"] }
+
+    # ─── TENANT2 hosts (VLAN30, 172.16.30/24) ───────────────────────────────
+    pc9:  { kind: linux, exec: ["ip address add 172.16.30.101/24 dev eth1", "ip route replace default via 172.16.30.1 dev eth1"] }
+    pc10: { kind: linux, exec: ["ip address add 172.16.30.102/24 dev eth1", "ip route replace default via 172.16.30.1 dev eth1"] }
+    pc11: { kind: linux, exec: ["ip address add 172.16.30.103/24 dev eth1", "ip route replace default via 172.16.30.1 dev eth1"] }
+    pc12: { kind: linux, exec: ["ip address add 172.16.30.104/24 dev eth1", "ip route replace default via 172.16.30.1 dev eth1"] }
+
+    # ─── TENANT3 hosts (VLAN50, 172.16.50/24) ───────────────────────────────
+    pc13: { kind: linux, exec: ["ip address add 172.16.50.101/24 dev eth1", "ip route replace default via 172.16.50.1 dev eth1"] }
+    pc14: { kind: linux, exec: ["ip address add 172.16.50.102/24 dev eth1", "ip route replace default via 172.16.50.1 dev eth1"] }
+    pc15: { kind: linux, exec: ["ip address add 172.16.50.103/24 dev eth1", "ip route replace default via 172.16.50.1 dev eth1"] }
+    pc16: { kind: linux, exec: ["ip address add 172.16.50.104/24 dev eth1", "ip route replace default via 172.16.50.1 dev eth1"] }
+
+    # ─── POD-2 HOSTS — NEW ─────────────────────────────────────────────────
+    # Leaf-05 (pc17 T1-V10, pc18 T1-V20, pc19 T2-V30, pc20 T3-V50)
+    pc17: { kind: linux, exec: ["ip address add 10.10.10.105/24 dev eth1",  "ip route replace default via 10.10.10.1 dev eth1"] }
+    pc18: { kind: linux, exec: ["ip address add 10.20.20.105/24 dev eth1",  "ip route replace default via 10.20.20.1 dev eth1"] }
+    pc19: { kind: linux, exec: ["ip address add 172.16.30.105/24 dev eth1", "ip route replace default via 172.16.30.1 dev eth1"] }
+    pc20: { kind: linux, exec: ["ip address add 172.16.50.105/24 dev eth1", "ip route replace default via 172.16.50.1 dev eth1"] }
+    # Leaf-06
+    pc21: { kind: linux, exec: ["ip address add 10.10.10.106/24 dev eth1",  "ip route replace default via 10.10.10.1 dev eth1"] }
+    pc22: { kind: linux, exec: ["ip address add 10.20.20.106/24 dev eth1",  "ip route replace default via 10.20.20.1 dev eth1"] }
+    pc23: { kind: linux, exec: ["ip address add 172.16.30.106/24 dev eth1", "ip route replace default via 172.16.30.1 dev eth1"] }
+    pc24: { kind: linux, exec: ["ip address add 172.16.50.106/24 dev eth1", "ip route replace default via 172.16.50.1 dev eth1"] }
+    # Leaf-07
+    pc25: { kind: linux, exec: ["ip address add 10.10.10.107/24 dev eth1",  "ip route replace default via 10.10.10.1 dev eth1"] }
+    pc26: { kind: linux, exec: ["ip address add 10.20.20.107/24 dev eth1",  "ip route replace default via 10.20.20.1 dev eth1"] }
+    pc27: { kind: linux, exec: ["ip address add 172.16.30.107/24 dev eth1", "ip route replace default via 172.16.30.1 dev eth1"] }
+    pc28: { kind: linux, exec: ["ip address add 172.16.50.107/24 dev eth1", "ip route replace default via 172.16.50.1 dev eth1"] }
+    # Leaf-08
+    pc29: { kind: linux, exec: ["ip address add 10.10.10.108/24 dev eth1",  "ip route replace default via 10.10.10.1 dev eth1"] }
+    pc30: { kind: linux, exec: ["ip address add 10.20.20.108/24 dev eth1",  "ip route replace default via 10.20.20.1 dev eth1"] }
+    pc31: { kind: linux, exec: ["ip address add 172.16.30.108/24 dev eth1", "ip route replace default via 172.16.30.1 dev eth1"] }
+    pc32: { kind: linux, exec: ["ip address add 172.16.50.108/24 dev eth1", "ip route replace default via 172.16.50.1 dev eth1"] }
+
+  links:
+    # ─── Super-spine ↔ pod-1 spine (tier-1 ↔ tier-2) ────────────────────────
+    - endpoints: ["super-spine-01:eth1", "spine-01:eth7"]
+    - endpoints: ["super-spine-01:eth2", "spine-02:eth7"]
+    - endpoints: ["super-spine-02:eth1", "spine-01:eth8"]
+    - endpoints: ["super-spine-02:eth2", "spine-02:eth8"]
+
+    # ─── Super-spine ↔ pod-2 spine (tier-1 ↔ tier-2) — NEW ──────────────────
+    - endpoints: ["super-spine-01:eth3", "spine-03:eth7"]
+    - endpoints: ["super-spine-01:eth4", "spine-04:eth7"]
+    - endpoints: ["super-spine-02:eth3", "spine-03:eth8"]
+    - endpoints: ["super-spine-02:eth4", "spine-04:eth8"]
+
+    # ─── Pod-2 underlay (spine ↔ leaf) — NEW ────────────────────────────────
+    - endpoints: ["spine-03:eth1", "leaf-05:eth1"]
+    - endpoints: ["spine-03:eth2", "leaf-06:eth1"]
+    - endpoints: ["spine-03:eth3", "leaf-07:eth1"]
+    - endpoints: ["spine-03:eth4", "leaf-08:eth1"]
+    - endpoints: ["spine-04:eth1", "leaf-05:eth2"]
+    - endpoints: ["spine-04:eth2", "leaf-06:eth2"]
+    - endpoints: ["spine-04:eth3", "leaf-07:eth2"]
+    - endpoints: ["spine-04:eth4", "leaf-08:eth2"]
+
+    # ─── Pod-2 access ports (leaf ↔ host) — NEW ─────────────────────────────
+    - endpoints: ["leaf-05:eth3", "pc17:eth1"]
+    - endpoints: ["leaf-05:eth4", "pc18:eth1"]
+    - endpoints: ["leaf-05:eth5", "pc19:eth1"]
+    - endpoints: ["leaf-05:eth6", "pc20:eth1"]
+    - endpoints: ["leaf-06:eth3", "pc21:eth1"]
+    - endpoints: ["leaf-06:eth4", "pc22:eth1"]
+    - endpoints: ["leaf-06:eth5", "pc23:eth1"]
+    - endpoints: ["leaf-06:eth6", "pc24:eth1"]
+    - endpoints: ["leaf-07:eth3", "pc25:eth1"]
+    - endpoints: ["leaf-07:eth4", "pc26:eth1"]
+    - endpoints: ["leaf-07:eth5", "pc27:eth1"]
+    - endpoints: ["leaf-07:eth6", "pc28:eth1"]
+    - endpoints: ["leaf-08:eth3", "pc29:eth1"]
+    - endpoints: ["leaf-08:eth4", "pc30:eth1"]
+    - endpoints: ["leaf-08:eth5", "pc31:eth1"]
+    - endpoints: ["leaf-08:eth6", "pc32:eth1"]
+
+    # ─── Pod-1 underlay (spine-leaf) ────────────────────────────────────────
+    - endpoints: ["spine-01:eth1", "leaf-01:eth1"]
+    - endpoints: ["spine-01:eth2", "leaf-02:eth1"]
+    - endpoints: ["spine-01:eth3", "leaf-03:eth1"]
+    - endpoints: ["spine-01:eth4", "leaf-04:eth1"]
+    - endpoints: ["spine-01:eth5", "border-leaf-01:eth1"]
+    - endpoints: ["spine-01:eth6", "border-leaf-02:eth1"]
+    - endpoints: ["spine-02:eth1", "leaf-01:eth2"]
+    - endpoints: ["spine-02:eth2", "leaf-02:eth2"]
+    - endpoints: ["spine-02:eth3", "leaf-03:eth2"]
+    - endpoints: ["spine-02:eth4", "leaf-04:eth2"]
+    - endpoints: ["spine-02:eth5", "border-leaf-01:eth2"]
+    - endpoints: ["spine-02:eth6", "border-leaf-02:eth2"]
+
+    # ─── ISP uplinks from border leaves ─────────────────────────────────────
+    # eth3 → ISP-01 (existing), eth4 → ISP-02 (NEW, dual-homed)
+    - endpoints: ["border-leaf-01:eth3", "isp-01:eth1"]
+    - endpoints: ["border-leaf-02:eth3", "isp-01:eth2"]
+    - endpoints: ["border-leaf-01:eth4", "isp-02:eth1"]
+    - endpoints: ["border-leaf-02:eth4", "isp-02:eth2"]
+
+    # ─── ISP uplinks to FRR-INET (simulated Internet) — NEW ─────────────────
+    - endpoints: ["isp-01:eth5", "frr-inet:eth1"]
+    - endpoints: ["isp-02:eth5", "frr-inet:eth2"]
+
+    # ─── Access ports on regular leaves ─────────────────────────────────────
+    # leaf eth3 = VLAN10 (T1), eth4 = VLAN20 (T1), eth5 = VLAN30 (T2), eth6 = VLAN50 (T3)
+    - endpoints: ["leaf-01:eth3", "pc1:eth1"]
+    - endpoints: ["leaf-01:eth4", "pc2:eth1"]
+    - endpoints: ["leaf-02:eth3", "pc3:eth1"]
+    - endpoints: ["leaf-02:eth4", "pc4:eth1"]
+    - endpoints: ["leaf-03:eth3", "pc5:eth1"]
+    - endpoints: ["leaf-03:eth4", "pc6:eth1"]
+    - endpoints: ["leaf-04:eth3", "pc7:eth1"]
+    - endpoints: ["leaf-04:eth4", "pc8:eth1"]
+    - endpoints: ["leaf-01:eth5", "pc9:eth1"]
+    - endpoints: ["leaf-02:eth5", "pc10:eth1"]
+    - endpoints: ["leaf-03:eth5", "pc11:eth1"]
+    - endpoints: ["leaf-04:eth5", "pc12:eth1"]
+    - endpoints: ["leaf-01:eth6", "pc13:eth1"]
+    - endpoints: ["leaf-02:eth6", "pc14:eth1"]
+    - endpoints: ["leaf-03:eth6", "pc15:eth1"]
+    - endpoints: ["leaf-04:eth6", "pc16:eth1"]

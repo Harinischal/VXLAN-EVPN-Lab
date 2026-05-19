@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}{{ node }} · Terminal{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+<style>
+  .container { max-width: 100%; padding: 16px 22px; }
+  .term-head {
+    display: flex; align-items: center; gap: 16px; margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .term-head h1 {
+    font-size: 18px; font-family: 'JetBrains Mono', monospace;
+    margin: 0; color: var(--text);
+  }
+  .term-badge {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    padding: 3px 10px; border-radius: 99px;
+    background: var(--panel-soft); color: var(--text-mute);
+    border: 1px solid var(--border);
+  }
+  .term-badge.connected { color: var(--emerald); border-color: rgba(16,185,129,0.3); }
+  .term-badge.disconnected { color: var(--rose); border-color: rgba(244,63,94,0.3); }
+  .term-hint { color: var(--text-mute); font-size: 12px; margin-left: auto; }
+  #term-wrap {
+    width: 100%; height: calc(100vh - 180px); min-height: 500px;
+    border: 1px solid var(--border-strong); border-radius: 10px;
+    overflow: hidden; background: #0b0d12;
+    box-shadow: var(--shadow-lg);
+  }
+  #terminal { width: 100%; height: 100%; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="term-head">
+  <h1>{{ node }}</h1>
+  <span class="term-badge" id="conn-badge">connecting…</span>
+  <span class="term-hint">Ctrl+C · Ctrl+Z work normally · closing the tab disconnects</span>
+</div>
+<div id="term-wrap">
+  <div id="terminal"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+<script>
+(function () {
+  const node   = {{ node | tojson }};
+  const badge  = document.getElementById('conn-badge');
+  const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const wsUrl   = `${wsProto}://${location.host}/ws/clab-vxlan-evpn-${node}`;
+
+  const term = new Terminal({
+    fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+    fontSize: 14,
+    lineHeight: 1.35,
+    cursorBlink: true,
+    cursorStyle: 'block',
+    theme: {
+      background:    '#0b0d12',
+      foreground:    '#f1f5f9',
+      cursor:        '#6366f1',
+      cursorAccent:  '#0b0d12',
+      black:         '#14171f',
+      red:           '#f43f5e',
+      green:         '#10b981',
+      yellow:        '#f59e0b',
+      blue:          '#3b82f6',
+      magenta:       '#8b5cf6',
+      cyan:          '#06b6d4',
+      white:         '#cbd5e1',
+      brightBlack:   '#475569',
+      brightRed:     '#fb7185',
+      brightGreen:   '#34d399',
+      brightYellow:  '#fbbf24',
+      brightBlue:    '#60a5fa',
+      brightMagenta: '#a78bfa',
+      brightCyan:    '#22d3ee',
+      brightWhite:   '#f8fafc',
+    },
+    scrollback: 5000,
+    allowProposedApi: true,
+  });
+
+  const fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+  term.open(document.getElementById('terminal'));
+  fitAddon.fit();
+
+  let ws;
+
+  function connect() {
+    ws = new WebSocket(wsUrl);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+      badge.textContent = 'connected';
+      badge.className = 'term-badge connected';
+      // Send initial size
+      ws.send(JSON.stringify({ resize: { cols: term.cols, rows: term.rows } }));
+    };
+
+    ws.onmessage = (ev) => {
+      if (ev.data instanceof ArrayBuffer) {
+        term.write(new Uint8Array(ev.data));
+      } else {
+        term.write(ev.data);
+      }
+    };
+
+    ws.onclose = () => {
+      badge.textContent = 'disconnected';
+      badge.className = 'term-badge disconnected';
+      term.write('\r\n\x1b[31m[connection closed]\x1b[0m\r\n');
+    };
+
+    ws.onerror = () => {
+      badge.textContent = 'error';
+      badge.className = 'term-badge disconnected';
+    };
+  }
+
+  term.onData((data) => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(data);
+    }
+  });
+
+  term.onResize(({ cols, rows }) => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ resize: { cols, rows } }));
+    }
+  });
+
+  // Resize terminal when window resizes
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => fitAddon.fit(), 100);
+  });
+
+  connect();
+})();
+</script>
+{% endblock %}

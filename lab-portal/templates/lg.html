@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Looking glass · Lab Portal{% endblock %}
+{% block head %}
+<style>
+  form { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 11px; color: var(--text-mute); text-transform: uppercase; letter-spacing: 0.07em; font-weight: 600; }
+  #out { white-space: pre-wrap; min-height: 340px; max-height: 70vh; overflow-y: auto; }
+  .meta { color: var(--text-mute); font-size: 12px; font-family: 'JetBrains Mono', monospace; }
+  #run-btn { min-width: 110px; }
+  .spinner { display: none; color: var(--indigo); font-size: 13px; font-weight: 500; }
+  .spinner.active { display: inline; }
+  input[type=text].cmd { min-width: 440px; flex: 1; font-family: 'JetBrains Mono', monospace; }
+  .quick-picks a { color: var(--indigo); margin-right: 14px; text-decoration: none; font-weight: 500; }
+  .quick-picks a:hover { text-decoration: underline; }
+</style>
+{% endblock %}
+{% block content %}
+<h1>Looking glass</h1>
+<div class="sub">Run any read-only show command on any router · no SSH session needed</div>
+
+<div class="panel">
+  <form id="lg">
+    <div class="field">
+      <label>Router</label>
+      <select name="node" id="node">
+        {% for r in routers %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field" style="flex: 1;">
+      <label>Command</label>
+      <input type="text" class="cmd" name="cmd" id="cmd"
+             value="show ip bgp summary" list="cmds" autocomplete="off">
+      <datalist id="cmds">
+        {% for c in commands %}<option value="{{ c }}">{% endfor %}
+      </datalist>
+    </div>
+    <button type="submit" id="run-btn">Run</button>
+    <span class="spinner" id="spin">running…</span>
+  </form>
+  <div class="meta quick-picks" style="margin-top: 12px;">
+    quick picks:
+    {% for c in commands[:6] %}
+      <a href="#" onclick="event.preventDefault();document.getElementById('cmd').value='{{ c }}';document.getElementById('run-btn').click();">{{ c }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="panel">
+  <div class="meta" id="meta">waiting for command…</div>
+  <pre id="out"></pre>
+</div>
+
+<script>
+const form = document.getElementById('lg');
+const out  = document.getElementById('out');
+const meta = document.getElementById('meta');
+const spin = document.getElementById('spin');
+const btn  = document.getElementById('run-btn');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const node = document.getElementById('node').value;
+  const cmd  = document.getElementById('cmd').value;
+  meta.textContent = `running '${cmd}' on ${node}…`;
+  out.textContent = '';
+  spin.classList.add('active');
+  btn.disabled = true;
+  const t0 = Date.now();
+  try {
+    const r = await fetch('/lg/run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({node, cmd})
+    });
+    const j = await r.json();
+    const dt = ((Date.now() - t0) / 1000).toFixed(1);
+    if (!j.ok) {
+      meta.textContent = `error · ${dt}s`;
+      out.textContent = j.error;
+    } else {
+      meta.textContent = `${node} · '${cmd}' · ${dt}s`;
+      out.textContent = j.output || '(empty)';
+    }
+  } catch (err) {
+    meta.textContent = 'fetch failed';
+    out.textContent = err.toString();
+  } finally {
+    spin.classList.remove('active');
+    btn.disabled = false;
+  }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,385 @@
+{% extends "base.html" %}
+{% block title %}Topology · Lab Portal{% endblock %}
+{% block head %}
+<style>
+  .topo-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 22px 26px 8px;
+    margin-bottom: 36px;
+    box-shadow: var(--shadow-md);
+    overflow-x: auto;
+  }
+  .mermaid { min-height: 720px; text-align: center; }
+  .mermaid svg { max-width: 100%; height: auto !important; }
+  .mermaid .node rect, .mermaid .node polygon, .mermaid .node circle {
+    cursor: pointer !important;
+    transition: filter 0.2s ease;
+  }
+  .mermaid .node:hover rect, .mermaid .node:hover polygon, .mermaid .node:hover circle {
+    filter: brightness(1.08) drop-shadow(0 4px 14px rgba(99,102,241,0.35));
+  }
+  .mermaid .cluster rect { rx: 12px; ry: 12px; }
+  .mermaid .cluster-label .nodeLabel {
+    font-weight: 700 !important;
+    font-size: 13px !important;
+    letter-spacing: 0.04em;
+  }
+
+  .legend-bar {
+    display: flex; gap: 14px; flex-wrap: wrap;
+    font-size: 12px; color: var(--text-soft);
+    font-family: 'JetBrains Mono', monospace;
+    margin: 14px 0 22px;
+    padding: 12px 16px;
+    background: var(--panel-soft);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .legend-bar .sw {
+    display: inline-block; width: 18px; height: 11px; border-radius: 4px;
+    vertical-align: middle; margin-right: 6px; border: 1.5px solid;
+  }
+
+  .leaf-row {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 12px;
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 18px;
+    align-items: center;
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.15s;
+  }
+  .leaf-row:hover { box-shadow: var(--shadow-md); }
+  .leaf-row .leaf-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--emerald);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .leaf-row .leaf-tag::before {
+    content: ''; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--emerald);
+  }
+  .pcs { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  .pc-btn {
+    background: var(--panel);
+    border: 1.5px solid var(--border);
+    border-left-width: 4px;
+    border-radius: 9px;
+    padding: 10px 14px;
+    text-decoration: none;
+    font-family: 'JetBrains Mono', monospace;
+    transition: all 0.15s;
+    min-width: 110px;
+    display: inline-flex; flex-direction: column; gap: 2px;
+    color: var(--text);
+    box-shadow: var(--shadow-sm);
+  }
+  .pc-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+  }
+  .pc-btn .name { font-size: 13px; font-weight: 600; }
+  .pc-btn .ip { font-size: 11px; color: var(--text-mute); }
+  .pc-btn.t1 { border-left-color: var(--blue); }
+  .pc-btn.t1:hover { border-color: var(--blue); background: rgba(59,130,246,0.08); }
+  .pc-btn.t2 { border-left-color: var(--emerald); }
+  .pc-btn.t2:hover { border-color: var(--emerald); background: rgba(16,185,129,0.08); }
+  .pc-btn.t3 { border-left-color: var(--violet); }
+  .pc-btn.t3:hover { border-color: var(--violet); background: rgba(139,92,246,0.08); }
+  .pc-btn.jump { border-left-color: var(--indigo); }
+  .pc-btn.jump:hover { border-color: var(--indigo); background: rgba(99,102,241,0.08); }
+
+  /* ── HERO ── */
+  .hero {
+    position: relative;
+    background: linear-gradient(135deg, #4338ca 0%, #7c3aed 35%, #db2777 100%);
+    border-radius: 20px;
+    padding: 36px 40px;
+    margin-bottom: 32px;
+    color: #ffffff;
+    overflow: hidden;
+    box-shadow: 0 20px 50px -20px rgba(124, 58, 237, 0.5);
+  }
+  .hero-bg {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(circle at 15% 15%, rgba(255,255,255,0.18) 0%, transparent 35%),
+      radial-gradient(circle at 85% 85%, rgba(255,255,255,0.12) 0%, transparent 35%),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='60' height='60'><circle cx='1' cy='1' r='1' fill='%23ffffff' opacity='0.15'/></svg>");
+    pointer-events: none;
+  }
+  .hero-text { position: relative; z-index: 1; }
+  .hero h1 {
+    color: #ffffff; font-size: 32px; font-weight: 800;
+    letter-spacing: -0.03em; margin: 0 0 8px 0;
+    text-shadow: 0 2px 16px rgba(0,0,0,0.15);
+  }
+  .hero .sub { color: rgba(255,255,255,0.85); font-size: 15px; margin: 0; }
+  .hero-stats {
+    position: relative; z-index: 1;
+    display: flex; gap: 28px; margin-top: 28px; flex-wrap: wrap;
+  }
+  .hero-stat {
+    background: rgba(255,255,255,0.13);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 12px;
+    padding: 14px 22px;
+    min-width: 90px;
+  }
+  .hero-stat .hv {
+    font-size: 26px; font-weight: 700; color: #fff;
+    font-family: 'JetBrains Mono', monospace; letter-spacing: -0.02em;
+  }
+  .hero-stat .hl {
+    font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.75);
+    text-transform: uppercase; letter-spacing: 0.1em; margin-top: 2px;
+  }
+</style>
+<script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'base',
+      securityLevel: 'loose',
+      flowchart: {
+        useMaxWidth: true,
+        htmlLabels: true,
+        curve: 'basis',
+        padding: 26,
+        nodeSpacing: 65,
+        rankSpacing: 75
+      },
+      themeVariables: {
+        fontFamily: 'Inter, sans-serif',
+        fontSize: '15px',
+        background: 'transparent',
+        mainBkg: '#1a1e28',
+        primaryBorderColor: '#3a4050',
+        primaryColor: '#1a1e28',
+        primaryTextColor: '#f1f5f9',
+        lineColor: '#475569',
+        clusterBkg: 'transparent',
+        clusterBorder: '#3a4050',
+        edgeLabelBackground: '#14171f',
+      }
+    });
+</script>
+{% endblock %}
+{% block content %}
+
+<div class="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-text">
+    <h1>Click any device to open a terminal</h1>
+    <div class="sub">Network layout mirrors the 5-stage Clos topology · routers above, host PCs grouped by leaf below</div>
+  </div>
+  <div class="hero-stats">
+    <div class="hero-stat"><div class="hv">17</div><div class="hl">routers</div></div>
+    <div class="hero-stat"><div class="hv">32</div><div class="hl">host PCs</div></div>
+    <div class="hero-stat"><div class="hv">2</div><div class="hl">pods</div></div>
+    <div class="hero-stat"><div class="hv">3</div><div class="hl">VRFs</div></div>
+    <div class="hero-stat"><div class="hv">2</div><div class="hl">ISPs</div></div>
+    <div class="hero-stat"><div class="hv">~500</div><div class="hl">internet prefixes</div></div>
+  </div>
+</div>
+
+<div class="legend-bar">
+  <span><span class="sw" style="background:#eff6ff;border-color:#3b82f6"></span>ISP</span>
+  <span><span class="sw" style="background:#fdf2f8;border-color:#ec4899"></span>Border</span>
+  <span><span class="sw" style="background:#fdf4ff;border-color:#d946ef"></span>Super-spine</span>
+  <span><span class="sw" style="background:#fffbeb;border-color:#f59e0b"></span>Spine</span>
+  <span><span class="sw" style="background:#ecfdf5;border-color:#10b981"></span>Leaf</span>
+  <span><span class="sw" style="background:#cffafe;border-color:#06b6d4"></span>Host</span>
+  <span style="margin-left:auto; color: var(--text-mute);">
+    <span style="display:inline-block;width:18px;height:3px;background:#10b981;border-radius:2px;vertical-align:middle;margin-right:5px;"></span>link UP
+    &nbsp;
+    <span style="display:inline-block;width:18px;height:3px;background:#ef4444;border-radius:2px;vertical-align:middle;margin-right:5px;border-top:1px dashed;"></span>link DOWN
+    &nbsp;·&nbsp;
+    ↗ click any device for terminal
+  </span>
+</div>
+
+<div class="topo-card">
+<pre class="mermaid">
+flowchart TB
+  classDef tier1 fill:#3b0a47,stroke:#d946ef,stroke-width:2.5px,color:#fdf4ff
+  classDef tier2 fill:#3b2807,stroke:#f59e0b,stroke-width:2.5px,color:#fef3c7
+  classDef tier3 fill:#053527,stroke:#10b981,stroke-width:2.5px,color:#d1fae5
+  classDef border fill:#3b0a25,stroke:#ec4899,stroke-width:2.5px,color:#fce7f3
+  classDef ext   fill:#0a2540,stroke:#3b82f6,stroke-width:2.5px,color:#dbeafe
+
+  INET(["🌐 frr-inet · AS 65999<br/>~500 internet prefixes"])
+  ISP_A(("isp-01 · AS 65100"))
+  ISP_B(("isp-02 · AS 65200"))
+
+  subgraph BORDER ["BORDER LEAVES"]
+    direction LR
+    BL1["border-leaf-01"]
+    BL2["border-leaf-02"]
+  end
+
+  subgraph SUPER ["SUPER-SPINES TIER-1"]
+    direction LR
+    SS1["super-spine-01"]
+    SS2["super-spine-02"]
+  end
+
+  subgraph SPP1 ["POD-1 SPINES"]
+    direction LR
+    SP1["spine-01"]
+    SP2["spine-02"]
+  end
+
+  subgraph LFP1 ["POD-1 LEAVES"]
+    direction LR
+    L1["leaf-01"]
+    L2["leaf-02"]
+    L3["leaf-03"]
+    L4["leaf-04"]
+  end
+
+  subgraph SPP2 ["POD-2 SPINES"]
+    direction LR
+    SP3["spine-03"]
+    SP4["spine-04"]
+  end
+
+  subgraph LFP2 ["POD-2 LEAVES"]
+    direction LR
+    L5["leaf-05"]
+    L6["leaf-06"]
+    L7["leaf-07"]
+    L8["leaf-08"]
+  end
+
+  INET === ISP_A
+  INET === ISP_B
+  ISP_A === BL1
+  ISP_A === BL2
+  ISP_B === BL1
+  ISP_B === BL2
+  BL1 --- SP1
+  BL1 --- SP2
+  BL2 --- SP1
+  BL2 --- SP2
+  SP1 -.-> SS1
+  SP1 -.-> SS2
+  SP2 -.-> SS1
+  SP2 -.-> SS2
+  SP3 -.-> SS1
+  SP3 -.-> SS2
+  SP4 -.-> SS1
+  SP4 -.-> SS2
+  SP1 --- L1
+  SP1 --- L2
+  SP1 --- L3
+  SP1 --- L4
+  SP2 --- L1
+  SP2 --- L2
+  SP2 --- L3
+  SP2 --- L4
+  SP3 --- L5
+  SP3 --- L6
+  SP3 --- L7
+  SP3 --- L8
+  SP4 --- L5
+  SP4 --- L6
+  SP4 --- L7
+  SP4 --- L8
+
+  class ISP_A,ISP_B ext
+  class BL1,BL2 border
+  class SS1,SS2 tier1
+  class SP1,SP2,SP3,SP4 tier2
+  class L1,L2,L3,L4,L5,L6,L7,L8 tier3
+
+  style BORDER fill:none,stroke:#ec4899,stroke-width:2.5px,color:#f9a8d4
+  style SUPER  fill:none,stroke:#d946ef,stroke-width:2.5px,color:#e9a8f8
+  style SPP1   fill:none,stroke:#f59e0b,stroke-width:2.5px,color:#fbbf24
+  style SPP2   fill:none,stroke:#f59e0b,stroke-width:2.5px,color:#fbbf24
+  style LFP1   fill:none,stroke:#10b981,stroke-width:2.5px,color:#34d399
+  style LFP2   fill:none,stroke:#10b981,stroke-width:2.5px,color:#34d399
+
+  {% if up_links %}linkStyle {{ up_links }} stroke:#10b981,stroke-width:2.5px{% endif %}
+  {% if down_links %}linkStyle {{ down_links }} stroke:#ef4444,stroke-width:2.5px,stroke-dasharray:5 4{% endif %}
+
+  style INET fill:#0a1f3a,stroke:#06b6d4,stroke-width:3.5px,color:#7dd3fc
+
+  click INET href "/term/frr-inet" "Open vtysh" _blank
+  click ISP_A href "/term/isp-01" "Open terminal" _blank
+  click ISP_B href "/term/isp-02" "Open terminal" _blank
+  click BL1 href "/term/border-leaf-01" "Open terminal" _blank
+  click BL2 href "/term/border-leaf-02" "Open terminal" _blank
+  click SS1 href "/term/super-spine-01" "Open terminal" _blank
+  click SS2 href "/term/super-spine-02" "Open terminal" _blank
+  click SP1 href "/term/spine-01" "Open terminal" _blank
+  click SP2 href "/term/spine-02" "Open terminal" _blank
+  click SP3 href "/term/spine-03" "Open terminal" _blank
+  click SP4 href "/term/spine-04" "Open terminal" _blank
+  click L1 href "/term/leaf-01" "Open terminal" _blank
+  click L2 href "/term/leaf-02" "Open terminal" _blank
+  click L3 href "/term/leaf-03" "Open terminal" _blank
+  click L4 href "/term/leaf-04" "Open terminal" _blank
+  click L5 href "/term/leaf-05" "Open terminal" _blank
+  click L6 href "/term/leaf-06" "Open terminal" _blank
+  click L7 href "/term/leaf-07" "Open terminal" _blank
+  click L8 href "/term/leaf-08" "Open terminal" _blank
+</pre>
+</div>
+
+<h2>Host PCs · grouped by their leaf</h2>
+
+{% set ip_lookup = {
+  'pc1':'10.10.10.101','pc2':'10.20.20.101','pc3':'10.10.10.102','pc4':'10.20.20.102',
+  'pc5':'10.10.10.103','pc6':'10.20.20.103','pc7':'10.10.10.104','pc8':'10.20.20.104',
+  'pc9':'172.16.30.101','pc10':'172.16.30.102','pc11':'172.16.30.103','pc12':'172.16.30.104',
+  'pc13':'172.16.50.101','pc14':'172.16.50.102','pc15':'172.16.50.103','pc16':'172.16.50.104',
+  'pc17':'10.10.10.105','pc18':'10.20.20.105','pc19':'172.16.30.105','pc20':'172.16.50.105',
+  'pc21':'10.10.10.106','pc22':'10.20.20.106','pc23':'172.16.30.106','pc24':'172.16.50.106',
+  'pc25':'10.10.10.107','pc26':'10.20.20.107','pc27':'172.16.30.107','pc28':'172.16.50.107',
+  'pc29':'10.10.10.108','pc30':'10.20.20.108','pc31':'172.16.30.108','pc32':'172.16.50.108'
+} %}
+
+{% set host_by_leaf = {} %}
+{% for h in hosts %}
+  {% if h[2] not in host_by_leaf %}{% set _ = host_by_leaf.update({h[2]: []}) %}{% endif %}
+  {% set _ = host_by_leaf[h[2]].append(h) %}
+{% endfor %}
+
+{% for leaf in ['leaf-01','leaf-02','leaf-03','leaf-04','leaf-05','leaf-06','leaf-07','leaf-08'] %}
+<div class="leaf-row">
+  <div class="leaf-tag">{{ leaf }}</div>
+  <div class="pcs">
+    {% for h in host_by_leaf.get(leaf, []) %}
+      {% set vrf_cls = 't1' if h[1] == 'TENANT1' else 't2' if h[1] == 'TENANT2' else 't3' %}
+      <a class="pc-btn {{ vrf_cls }}" href="/term/{{ h[0] }}" target="_blank"
+         title="{{ h[1] }} · {{ leaf }}">
+        <span class="name">{{ h[0] }}</span>
+        <span class="ip">{{ ip_lookup[h[0]] }}</span>
+      </a>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+
+<h2>Jump host</h2>
+<div class="leaf-row">
+  <div class="leaf-tag" style="color: var(--indigo);">↳ lab host</div>
+  <div class="pcs">
+    <a class="pc-btn jump" href="/term/lab-host" target="_blank">
+      <span class="name">lab-host</span>
+      <span class="ip">192.168.236.139</span>
+    </a>
+  </div>
+</div>
+{% endblock %}

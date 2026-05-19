@@ -1,0 +1,995 @@
+{% extends "base.html" %}
+{% block title %}Peering view · Lab Portal{% endblock %}
+{% block head %}
+<style>
+  .peer-toolbar {
+    display: flex; align-items: center; gap: 14px;
+    margin-bottom: 18px; flex-wrap: wrap;
+  }
+  .peer-toolbar .spacer { flex: 1; }
+  .peer-toolbar .meta {
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    color: var(--text-mute);
+  }
+  .peer-toolbar .meta.stale { color: var(--amber); }
+
+  .tabs {
+    display: flex; gap: 4px; padding: 4px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; margin-bottom: 18px; width: fit-content;
+  }
+  .tabs button {
+    background: transparent; color: var(--text-soft);
+    box-shadow: none; padding: 8px 18px; font-weight: 500;
+    border-radius: 7px;
+  }
+  .tabs button.active {
+    background: linear-gradient(135deg, var(--indigo) 0%, var(--violet) 100%);
+    color: #fff;
+  }
+  .tabs button:hover:not(.active) {
+    background: var(--panel-soft); transform: none; box-shadow: none;
+  }
+
+  .view { display: none; }
+  .view.active { display: block; }
+
+  .ctrls {
+    display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+    margin-bottom: 18px;
+  }
+  .ctrls .seg {
+    display: flex; padding: 3px;
+    background: var(--panel-soft); border: 1px solid var(--border);
+    border-radius: 8px; gap: 2px;
+  }
+  .ctrls .seg button {
+    background: transparent; color: var(--text-soft);
+    padding: 6px 14px; font-size: 13px; box-shadow: none;
+  }
+  .ctrls .seg button.active {
+    background: var(--indigo); color: #fff;
+  }
+
+  .graph-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 28px; margin-bottom: 18px;
+    box-shadow: var(--shadow-sm);
+    min-height: 360px;
+  }
+  .graph-card .mermaid { text-align: center; }
+  .graph-card .mermaid svg { max-width: 100%; height: auto !important; }
+  .graph-empty {
+    text-align: center; color: var(--text-mute);
+    padding: 80px 20px; font-size: 14px;
+  }
+
+  /* ── Fabric view — big, beautiful, full-bleed ── */
+  #view-fab .graph-card {
+    min-height: 88vh;
+    padding: 50px 36px 36px;
+    margin-left: -32px; margin-right: -32px;
+    background:
+      radial-gradient(ellipse 1100px 360px at 50% 0%, rgba(99,102,241,0.10), transparent 60%),
+      radial-gradient(ellipse 900px 280px at 50% 100%, rgba(236,72,153,0.08), transparent 65%),
+      radial-gradient(ellipse 700px 300px at 8% 50%, rgba(16,185,129,0.05), transparent 65%),
+      radial-gradient(ellipse 700px 300px at 92% 50%, rgba(6,182,212,0.05), transparent 65%),
+      linear-gradient(180deg, #0e1118 0%, #0a0c12 100%);
+    border: 1px solid rgba(99,102,241,0.18);
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.02) inset,
+      0 20px 60px -20px rgba(0,0,0,0.6),
+      0 0 80px -20px rgba(99,102,241,0.15);
+    position: relative; overflow: hidden;
+  }
+  #view-fab .graph-card::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 80% 70% at 50% 50%, #000 30%, transparent 95%);
+    -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 50%, #000 30%, transparent 95%);
+  }
+  #view-fab .mermaid { min-height: 80vh; position: relative; z-index: 2; }
+  #view-fab .mermaid svg {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    filter: drop-shadow(0 8px 28px rgba(0,0,0,0.45));
+  }
+  /* Node hover — glow only, no transform (transform caused flicker) */
+  #view-fab .mermaid .node { cursor: pointer; transition: filter 0.18s; }
+  #view-fab .mermaid .node:hover rect,
+  #view-fab .mermaid .node:hover polygon {
+    filter: drop-shadow(0 0 14px rgba(167,139,250,0.6));
+    stroke: #a78bfa !important;
+  }
+  /* Subgraph cluster polish */
+  #view-fab .mermaid .cluster rect {
+    rx: 16px; ry: 16px;
+    fill: rgba(255,255,255,0.018) !important;
+    stroke-width: 1.5px !important;
+    stroke-dasharray: 0;
+  }
+  #view-fab .mermaid .cluster-label .nodeLabel,
+  #view-fab .mermaid .cluster-label text {
+    font-weight: 700 !important;
+    font-size: 12.5px !important;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    fill: var(--text-mute) !important;
+  }
+  /* Animated EVPN dashed lines (only in overlay mode) */
+  #view-fab.overlay .mermaid .flowchart-link {
+    stroke-dasharray: 9 5 !important;
+    animation: dash-flow 1.4s linear infinite;
+    stroke: var(--pink) !important;
+    stroke-width: 2.2px !important;
+    filter: drop-shadow(0 0 4px rgba(236,72,153,0.35));
+  }
+  @keyframes dash-flow { to { stroke-dashoffset: -28; } }
+
+  /* Solid underlay links — thicker, glow on Established */
+  #view-fab.underlay .mermaid .flowchart-link {
+    stroke: #10b981 !important;
+    stroke-width: 2.2px !important;
+    filter: drop-shadow(0 0 4px rgba(16,185,129,0.35));
+  }
+  /* Edge labels (port pairs) */
+  #view-fab .mermaid .edgeLabel {
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+  }
+  #view-fab .mermaid .edgeLabel rect,
+  #view-fab .mermaid .edgeLabel .label-container {
+    fill: #0b0d12 !important;
+    stroke: rgba(99,102,241,0.25) !important;
+    stroke-width: 1px !important;
+  }
+  /* Make node text pop */
+  #view-fab .mermaid .node .nodeLabel { font-weight: 600 !important; }
+  #view-fab .mermaid .node rect, #view-fab .mermaid .node polygon {
+    stroke-width: 3px !important;
+    rx: 12px; ry: 12px;
+  }
+  /* Bigger edge labels */
+  #view-fab .mermaid .edgeLabel { font-size: 12.5px !important; }
+
+  /* Fabric stats strip — KPI cards */
+  .fab-stats {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 12px; margin: 0 0 14px 0;
+  }
+  @media (max-width: 1100px) { .fab-stats { grid-template-columns: repeat(3, 1fr); } }
+  .stat-card {
+    background: linear-gradient(135deg, var(--panel) 0%, var(--panel-soft) 100%);
+    border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px; position: relative; overflow: hidden;
+  }
+  .stat-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--accent), transparent);
+  }
+  .stat-card.s1::before { background: linear-gradient(90deg, var(--indigo), transparent); }
+  .stat-card.s2::before { background: linear-gradient(90deg, var(--emerald), transparent); }
+  .stat-card.s3::before { background: linear-gradient(90deg, var(--pink), transparent); }
+  .stat-card.s4::before { background: linear-gradient(90deg, var(--cyan), transparent); }
+  .stat-card.s5::before { background: linear-gradient(90deg, var(--amber), transparent); }
+  .stat-card.s6::before { background: linear-gradient(90deg, var(--violet), transparent); }
+  .stat-card .v {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 26px; font-weight: 700; color: var(--text);
+    line-height: 1.1;
+  }
+  .stat-card .v .small {
+    font-size: 12px; color: var(--text-mute); font-weight: 500;
+    margin-left: 4px;
+  }
+  .stat-card .k {
+    font-size: 10.5px; font-weight: 600; color: var(--text-mute);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    margin-top: 6px;
+  }
+  .stat-card .v .ok  { color: var(--emerald); }
+  .stat-card .v .bad { color: var(--rose); }
+
+  /* Fabric legend strip */
+  .fab-legend {
+    display: flex; gap: 22px; align-items: center; flex-wrap: wrap;
+    margin: 0 0 14px 0; padding: 12px 18px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    font-family: 'JetBrains Mono', monospace; font-size: 11.5px;
+    color: var(--text-soft);
+  }
+  .fab-legend .item { display: flex; align-items: center; gap: 8px; }
+  .fab-legend .line {
+    display: inline-block; width: 30px; height: 3px; border-radius: 2px;
+  }
+  .fab-legend .line.solid { background: var(--emerald); box-shadow: 0 0 8px rgba(16,185,129,0.4); }
+  .fab-legend .line.dashed {
+    background: repeating-linear-gradient(90deg, var(--pink) 0 7px, transparent 7px 13px);
+    box-shadow: 0 0 8px rgba(236,72,153,0.4);
+  }
+  .fab-legend .swatch {
+    width: 13px; height: 13px; border-radius: 4px; border: 2px solid;
+    background: rgba(255,255,255,0.04);
+  }
+  .fab-legend .sep { color: var(--text-dim); }
+  .fab-legend .right { margin-left: auto; color: var(--text-mute); }
+
+  /* Detail tables */
+  .grid2 {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 16px; margin-bottom: 18px;
+  }
+  @media (max-width: 1000px) { .grid2 { grid-template-columns: 1fr; } }
+  .tbl-panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px;
+  }
+  .tbl-panel h3 {
+    margin: 0 0 12px 0; font-size: 13px;
+    color: var(--text-mute); text-transform: uppercase;
+    letter-spacing: 0.08em; font-weight: 600;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .tbl-panel h3 .badge {
+    background: var(--panel-soft); color: var(--text-soft);
+    border: 1px solid var(--border); padding: 2px 8px;
+    border-radius: 99px; font-size: 11px;
+    text-transform: none; letter-spacing: 0;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .tbl-panel h3 .dot-u { color: var(--emerald); font-size: 16px; }
+  .tbl-panel h3 .dot-e { color: var(--pink); font-size: 16px; }
+  .tbl-panel h3 .dot-v { color: var(--cyan); font-size: 16px; }
+  .tbl-panel h3 .dot-r { color: var(--amber); font-size: 16px; }
+
+  table.peer {
+    width: 100%; border-collapse: collapse;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  }
+  table.peer th {
+    text-align: left; padding: 6px 8px; color: var(--text-mute);
+    font-weight: 600; border-bottom: 1px solid var(--border);
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  table.peer td {
+    padding: 8px; border-bottom: 1px solid var(--border);
+    color: var(--text);
+  }
+  table.peer tr:last-child td { border-bottom: none; }
+  table.peer td.state-ok    { color: var(--emerald); }
+  table.peer td.state-bad   { color: var(--rose); }
+  table.peer td.iface       { color: var(--cyan); }
+  table.peer td.node        { color: var(--text-soft); }
+  table.peer .muted         { color: var(--text-dim); }
+
+  .info-row {
+    display: flex; gap: 18px; flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+  .info-card {
+    background: var(--panel-soft); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px; min-width: 180px;
+  }
+  .info-card .k { color: var(--text-mute); font-size: 10.5px;
+    text-transform: uppercase; letter-spacing: 0.06em; }
+  .info-card .v { color: var(--text); font-size: 16px;
+    font-weight: 600; margin-top: 2px; }
+
+  .empty-hint {
+    padding: 16px; color: var(--text-mute); font-size: 13px;
+    text-align: center;
+  }
+
+  /* VTEP-mesh card — cyan-accented overlay/data-plane view */
+  .vtep-card {
+    background:
+      radial-gradient(ellipse 600px 180px at 50% 0%, rgba(6,182,212,0.08), transparent 60%),
+      var(--panel);
+    border: 1px solid rgba(6,182,212,0.25);
+    border-radius: 14px; padding: 16px 18px 14px;
+    margin-bottom: 18px;
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.02) inset,
+      0 6px 18px -10px rgba(6,182,212,0.18);
+    position: relative; overflow: hidden;
+  }
+  .vtep-card .vt-title {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+  .vtep-card .vt-title h3 {
+    margin: 0; font-size: 15px; font-weight: 700;
+    color: var(--text); display: flex; align-items: center; gap: 8px;
+  }
+  .vtep-card .vt-title h3 .pulse {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--cyan);
+    box-shadow: 0 0 12px var(--cyan); animation: pulse 1.4s infinite;
+  }
+  .vtep-card .vt-title .desc {
+    color: var(--text-mute); font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .vtep-card .vt-info {
+    display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;
+  }
+  .vtep-card .vt-info .chip {
+    background: rgba(6,182,212,0.08);
+    border: 1px solid rgba(6,182,212,0.3);
+    color: #a5f3fc; padding: 5px 11px; border-radius: 99px;
+    font-family: 'JetBrains Mono', monospace; font-size: 11.5px;
+  }
+  .vtep-card .vt-info .chip .k { color: var(--text-mute); margin-right: 5px; }
+  .vtep-card .mermaid { text-align: center; min-height: 520px; }
+  .vtep-card .mermaid svg {
+    width: 100% !important; max-width: 100% !important;
+    max-height: 800px !important; height: auto !important;
+    filter: drop-shadow(0 6px 22px rgba(0,0,0,0.4));
+  }
+  /* VTEP nodes (double-circle for VTEPs) */
+  .vtep-card .mermaid .node { transition: filter 0.18s; }
+  .vtep-card .mermaid .node:hover circle,
+  .vtep-card .mermaid .node:hover polygon,
+  .vtep-card .mermaid .node:hover rect {
+    filter: drop-shadow(0 0 14px rgba(6,182,212,0.6));
+    stroke: var(--cyan) !important;
+    cursor: pointer;
+  }
+  /* Animated VXLAN tunnels */
+  .vtep-card .mermaid .flowchart-link {
+    stroke: #06b6d4 !important;
+    stroke-width: 2.2px !important;
+    stroke-dasharray: 6 4 !important;
+    animation: dash-flow 1.6s linear infinite;
+    filter: drop-shadow(0 0 4px rgba(6,182,212,0.35));
+  }
+  .vtep-card .vt-empty {
+    text-align: center; color: var(--text-mute);
+    padding: 36px 20px; font-size: 13px;
+  }
+
+  /* Loading overlay */
+  .loading {
+    position: fixed; top: 70px; right: 24px;
+    background: var(--panel); border: 1px solid var(--border);
+    padding: 10px 16px; border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    color: var(--text-soft); display: none; z-index: 200;
+    box-shadow: var(--shadow-md);
+  }
+  .loading.show { display: block; }
+  .loading::before {
+    content: ''; display: inline-block; width: 8px; height: 8px;
+    border-radius: 50%; background: var(--indigo);
+    margin-right: 8px; vertical-align: middle;
+    animation: pulse 1.2s infinite;
+  }
+</style>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'base',
+    securityLevel: 'loose',
+    flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis',
+                 padding: 18, nodeSpacing: 50, rankSpacing: 65 },
+    themeVariables: {
+      fontFamily: 'Inter, sans-serif', fontSize: '14px',
+      background: 'transparent', mainBkg: '#1a1e28',
+      primaryBorderColor: '#3a4050', primaryColor: '#1a1e28',
+      primaryTextColor: '#f1f5f9', lineColor: '#475569',
+      edgeLabelBackground: '#14171f',
+    }
+  });
+  window.__mermaid = mermaid;
+</script>
+{% endblock %}
+{% block content %}
+
+<h1>Peering view</h1>
+<div class="sub">See which neighbors are underlay (eBGP IPv4) vs overlay (EVPN multihop), plus VNI / VTEP state per leaf. Data is fetched on demand — hit Refresh to query every node.</div>
+
+<div class="peer-toolbar">
+  <button id="refresh-btn">Refresh now</button>
+  <span class="meta" id="meta">No data yet — click Refresh</span>
+  <div class="spacer"></div>
+  <div class="meta" id="counts"></div>
+</div>
+
+<div class="tabs">
+  <button id="tab-ego" class="active" onclick="setView('ego')">Ego view (per node)</button>
+  <button id="tab-fab" onclick="setView('fab')">Fabric view (all sessions)</button>
+</div>
+
+<!-- ──────────────  EGO  ─────────────────────────────────────── -->
+<div id="view-ego" class="view active">
+  <div class="ctrls">
+    <label for="node-select" style="color:var(--text-mute); font-size:13px;">Node:</label>
+    <select id="node-select"></select>
+  </div>
+
+  <div class="info-row" id="ego-info"></div>
+
+  <div class="graph-card">
+    <div id="ego-graph" class="mermaid">
+      <div class="graph-empty">Pick a node and refresh to see its peering map.</div>
+    </div>
+  </div>
+
+  <div class="vtep-card" id="vtep-card">
+    <div class="vt-title">
+      <h3><span class="pulse"></span> VXLAN data plane · VTEP-to-VTEP tunnels</h3>
+      <span class="desc">— logical full-mesh of remote VTEPs this leaf can encapsulate to (built from EVPN Type-3 routes)</span>
+    </div>
+    <div class="vt-info" id="vtep-info"></div>
+    <div id="vtep-graph" class="mermaid">
+      <div class="vt-empty">Pick a leaf and refresh to see its tunnel mesh.</div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="tbl-panel">
+      <h3><span class="dot-u">●</span> Underlay peers (eBGP IPv4) <span class="badge" id="ego-udl-count">0</span></h3>
+      <div id="ego-udl-tbl"><div class="empty-hint">—</div></div>
+    </div>
+    <div class="tbl-panel">
+      <h3><span class="dot-e">●</span> EVPN peers (multihop overlay) <span class="badge" id="ego-evp-count">0</span></h3>
+      <div id="ego-evp-tbl"><div class="empty-hint">—</div></div>
+    </div>
+    <div class="tbl-panel">
+      <h3><span class="dot-v">●</span> Local VNIs <span class="badge" id="ego-vni-count">0</span></h3>
+      <div id="ego-vni-tbl"><div class="empty-hint">—</div></div>
+    </div>
+    <div class="tbl-panel">
+      <h3><span class="dot-r">●</span> Remote VTEPs learned <span class="badge" id="ego-vtep-count">0</span></h3>
+      <div id="ego-vtep-tbl"><div class="empty-hint">—</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ──────────────  FABRIC  ─────────────────────────────────────── -->
+<div id="view-fab" class="view underlay">
+  <div class="ctrls">
+    <div class="seg" id="fab-seg">
+      <button id="fab-u" class="active" onclick="setFabMode('underlay')">Underlay (eBGP IPv4)</button>
+      <button id="fab-e" onclick="setFabMode('evpn')">Overlay (EVPN multihop)</button>
+    </div>
+    <span class="meta" id="fab-count"></span>
+  </div>
+  <div class="fab-stats" id="fab-stats"></div>
+  <div class="fab-legend">
+    <span class="item"><span class="line solid"></span> underlay eBGP · port-labelled</span>
+    <span class="item"><span class="line dashed"></span> EVPN multihop · animated</span>
+    <span class="sep">│</span>
+    <span class="item"><span class="swatch" style="border-color:#d946ef"></span> super-spine T1</span>
+    <span class="item"><span class="swatch" style="border-color:#f59e0b"></span> spine T2</span>
+    <span class="item"><span class="swatch" style="border-color:#10b981"></span> leaf T3</span>
+    <span class="item"><span class="swatch" style="border-color:#ec4899"></span> border</span>
+    <span class="item"><span class="swatch" style="border-color:#3b82f6"></span> ISP</span>
+    <span class="item"><span class="swatch" style="border-color:#06b6d4"></span> FRR-INET</span>
+    <span class="right">click any node → opens its Ego view</span>
+  </div>
+  <div class="graph-card">
+    <div id="fab-graph" class="mermaid">
+      <div class="graph-empty">Click Refresh to load fabric session map.</div>
+    </div>
+  </div>
+</div>
+
+<div class="loading" id="loading">querying nodes…</div>
+
+<script>
+// ─── Helpers ────────────────────────────────────────────────────
+const NODE_ORDER = [
+  "frr-inet", "isp-01", "isp-02",
+  "super-spine-01", "super-spine-02",
+  "spine-01", "spine-02", "spine-03", "spine-04",
+  "border-leaf-01", "border-leaf-02",
+  "leaf-01", "leaf-02", "leaf-03", "leaf-04",
+  "leaf-05", "leaf-06", "leaf-07", "leaf-08",
+];
+const ROLE = {};  // node → role label
+for (const n of ["super-spine-01","super-spine-02"]) ROLE[n] = "super-spine";
+for (const n of ["spine-01","spine-02","spine-03","spine-04"]) ROLE[n] = "spine";
+for (const n of ["leaf-01","leaf-02","leaf-03","leaf-04","leaf-05","leaf-06","leaf-07","leaf-08"]) ROLE[n] = "leaf";
+for (const n of ["border-leaf-01","border-leaf-02"]) ROLE[n] = "border";
+for (const n of ["isp-01","isp-02"]) ROLE[n] = "isp";
+ROLE["frr-inet"] = "frr";
+
+const ROLE_CLASS = {
+  "super-spine": "tier1", "spine": "tier2", "leaf": "tier3",
+  "border": "border", "isp": "ext", "frr": "frr",
+};
+
+const ROLE_STYLES = `
+  classDef tier1 fill:#3b0a47,stroke:#d946ef,stroke-width:2.5px,color:#fdf4ff
+  classDef tier2 fill:#3b2807,stroke:#f59e0b,stroke-width:2.5px,color:#fef3c7
+  classDef tier3 fill:#053527,stroke:#10b981,stroke-width:2.5px,color:#d1fae5
+  classDef border fill:#3b0a25,stroke:#ec4899,stroke-width:2.5px,color:#fce7f3
+  classDef ext   fill:#0a2540,stroke:#3b82f6,stroke-width:2.5px,color:#dbeafe
+  classDef frr   fill:#0a2540,stroke:#06b6d4,stroke-width:3px,color:#cffafe
+  classDef ego   fill:#1e1b4b,stroke:#a78bfa,stroke-width:4px,color:#ede9fe
+`;
+
+function nodeId(name) { return name.replace(/-/g, '_'); }
+function shortIf(name) { if (!name) return ''; return name.replace('Ethernet','Et').replace('Loopback','Lo'); }
+function escHtml(s) { return String(s ?? '').replace(/[&<>"']/g, c =>
+  ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+
+let cache = null;
+let fabMode = 'underlay';
+
+// ─── Refresh ────────────────────────────────────────────────────
+async function refresh() {
+  const btn = document.getElementById('refresh-btn');
+  const meta = document.getElementById('meta');
+  const loading = document.getElementById('loading');
+  btn.disabled = true; btn.textContent = 'Refreshing…'; loading.classList.add('show');
+  try {
+    const r = await fetch('/peer/refresh', { method: 'POST' });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'refresh failed');
+    cache = j.data;
+    meta.classList.remove('stale');
+    meta.textContent = `Last refresh ${cache.ts_human}`;
+    document.getElementById('counts').textContent =
+      `${Object.keys(cache.nodes).length} nodes · ${cache.sessions.underlay.length} underlay · ${cache.sessions.evpn.length} EVPN sessions`;
+    renderEgo();
+    renderFab();
+  } catch (e) {
+    meta.textContent = 'Refresh error: ' + e.message;
+    meta.classList.add('stale');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Refresh now'; loading.classList.remove('show');
+  }
+}
+
+async function loadInitial() {
+  try {
+    const r = await fetch('/peer/data');
+    const j = await r.json();
+    if (j.ok && j.data) {
+      cache = j.data;
+      const meta = document.getElementById('meta');
+      meta.textContent = `Last refresh ${cache.ts_human} (${j.age_sec}s ago)`;
+      if (j.age_sec > 300) meta.classList.add('stale');
+      document.getElementById('counts').textContent =
+        `${Object.keys(cache.nodes).length} nodes · ${cache.sessions.underlay.length} underlay · ${cache.sessions.evpn.length} EVPN sessions`;
+      renderEgo();
+      renderFab();
+    }
+  } catch (e) { /* ignore */ }
+}
+
+// ─── Tabs ────────────────────────────────────────────────────
+function setView(v) {
+  document.getElementById('view-ego').classList.toggle('active', v === 'ego');
+  document.getElementById('view-fab').classList.toggle('active', v === 'fab');
+  document.getElementById('tab-ego').classList.toggle('active', v === 'ego');
+  document.getElementById('tab-fab').classList.toggle('active', v === 'fab');
+}
+window.setView = setView;
+
+function setFabMode(m) {
+  fabMode = m;
+  document.getElementById('fab-u').classList.toggle('active', m === 'underlay');
+  document.getElementById('fab-e').classList.toggle('active', m === 'evpn');
+  renderFab();
+}
+window.setFabMode = setFabMode;
+
+// ─── Mermaid rendering helper ────────────────────────────────────
+let __gid = 0;
+async function renderMermaid(containerId, source) {
+  const el = document.getElementById(containerId);
+  if (!source) { el.innerHTML = '<div class="graph-empty">No data.</div>'; return; }
+  try {
+    const id = 'mm_' + (++__gid);
+    const { svg } = await window.__mermaid.render(id, source);
+    el.innerHTML = svg;
+  } catch (e) {
+    el.innerHTML = `<div class="graph-empty">Render error: ${escHtml(e.message)}</div>`;
+  }
+}
+
+// ─── Ego view rendering ────────────────────────────────────
+function buildNodeSelect() {
+  const sel = document.getElementById('node-select');
+  if (sel.options.length) return;
+  for (const n of NODE_ORDER) {
+    const opt = document.createElement('option');
+    opt.value = n; opt.textContent = n;
+    sel.appendChild(opt);
+  }
+  sel.value = 'leaf-01';
+  sel.addEventListener('change', renderEgo);
+}
+
+function renderEgo() {
+  if (!cache) return;
+  const node = document.getElementById('node-select').value;
+  const d = cache.nodes[node];
+  if (!d) return;
+
+  // Info cards
+  const info = [
+    ['Role', ROLE[node] || '?'],
+    ['ASN', d.asn || '?'],
+    ['Loopback0', d.loopback || '—'],
+    ['VTEP source', d.vtep_src || '—'],
+  ];
+  document.getElementById('ego-info').innerHTML = info.map(([k,v]) =>
+    `<div class="info-card"><div class="k">${escHtml(k)}</div><div class="v">${escHtml(v)}</div></div>`
+  ).join('');
+
+  // Build mermaid source — ego node in center
+  const lines = ['flowchart LR', ROLE_STYLES];
+  const labelSelf = `${node}<br/><span style='font-family:JetBrains Mono;font-size:11px;color:#94a3b8'>${escHtml(d.asn)} · ${escHtml(d.loopback || '')}</span>`;
+  lines.push(`  ${nodeId(node)}(["${labelSelf}"])`);
+
+  const seen = new Set();
+  for (const p of d.underlay_peers || []) {
+    if (!p.peer_node) continue;
+    if (!seen.has(p.peer_node)) {
+      const pd = cache.nodes[p.peer_node] || {};
+      lines.push(`  ${nodeId(p.peer_node)}(["${p.peer_node}<br/><span style='font-family:JetBrains Mono;font-size:11px;color:#94a3b8'>${escHtml(pd.asn || p.peer_asn)}</span>"])`);
+      seen.add(p.peer_node);
+    }
+    const lbl = `${shortIf(p.local_iface)} ↔ ${shortIf(p.peer_iface)}`;
+    lines.push(`  ${nodeId(node)} ==>|"${lbl}"| ${nodeId(p.peer_node)}`);
+  }
+  for (const p of d.evpn_peers || []) {
+    if (!p.peer_node) continue;
+    if (!seen.has(p.peer_node)) {
+      const pd = cache.nodes[p.peer_node] || {};
+      lines.push(`  ${nodeId(p.peer_node)}(["${p.peer_node}<br/><span style='font-family:JetBrains Mono;font-size:11px;color:#94a3b8'>${escHtml(pd.asn || p.peer_asn)}</span>"])`);
+      seen.add(p.peer_node);
+    }
+    lines.push(`  ${nodeId(node)} -.->|"EVPN"| ${nodeId(p.peer_node)}`);
+  }
+
+  // class assignments
+  lines.push(`  class ${nodeId(node)} ego`);
+  for (const pn of seen) {
+    const cls = ROLE_CLASS[ROLE[pn]] || 'tier3';
+    lines.push(`  class ${nodeId(pn)} ${cls}`);
+  }
+
+  if (seen.size === 0) {
+    document.getElementById('ego-graph').innerHTML =
+      '<div class="graph-empty">No BGP peers found for this node.</div>';
+  } else {
+    renderMermaid('ego-graph', lines.join('\n'));
+  }
+
+  // Tables
+  document.getElementById('ego-udl-count').textContent = (d.underlay_peers || []).length;
+  document.getElementById('ego-evp-count').textContent = (d.evpn_peers || []).length;
+  document.getElementById('ego-vni-count').textContent = (d.vnis || []).length;
+  document.getElementById('ego-vtep-count').textContent = (d.remote_vteps || []).length;
+
+  document.getElementById('ego-udl-tbl').innerHTML = renderUdlTable(d.underlay_peers);
+  document.getElementById('ego-evp-tbl').innerHTML = renderEvpTable(d.evpn_peers);
+  document.getElementById('ego-vni-tbl').innerHTML = renderVniTable(d.vnis);
+  document.getElementById('ego-vtep-tbl').innerHTML = renderRVtepTable(d.remote_vteps);
+
+  renderVtepMesh(d);
+}
+
+// ─── VTEP mesh (VXLAN data-plane view) ────────────────────────────
+const VTEP_INIT = `%%{init: {'theme':'base','themeVariables':{'fontFamily':'Inter, sans-serif','fontSize':'14px','background':'transparent','mainBkg':'#0e2230','primaryBorderColor':'#06b6d4','primaryColor':'#0e2230','primaryTextColor':'#cffafe','lineColor':'#06b6d4','edgeLabelBackground':'#0b0d12','clusterBkg':'transparent','clusterBorder':'transparent'},'flowchart':{'useMaxWidth':true,'htmlLabels':true,'curve':'basis','padding':28,'nodeSpacing':55,'rankSpacing':150}}}%%`;
+
+function vtepNode(name, ip, isCenter) {
+  const lbl = `<div style='padding:3px 2px;line-height:1.3'><b style='font-size:13px'>${escHtml(name)}</b><br/><span style='font-family:JetBrains Mono;font-size:10.5px;color:#a5f3fc'>${escHtml(ip || '')}</span></div>`;
+  // double-circle ((..)) for VTEP — looks like a routed loopback
+  return `${nodeId(name)}_v(("${lbl}"))`;
+}
+
+function renderVtepMesh(d) {
+  const info = document.getElementById('vtep-info');
+  const el = document.getElementById('vtep-graph');
+
+  if (!d.vtep_src) {
+    info.innerHTML = '';
+    el.innerHTML = `<div class="vt-empty">${escHtml(d.node)} is not a VTEP — no VXLAN encapsulation runs here. Pick a leaf or border-leaf to see the tunnel mesh.</div>`;
+    return;
+  }
+
+  const remotes = d.remote_vteps || [];
+  const vniList = (d.vnis || []).map(v => `${v.vni} (vlan ${v.vlan})`).join(' · ');
+
+  // Count by role for legend
+  let nLeaf = 0, nBord = 0, nUnk = 0;
+  for (const r of remotes) {
+    if (!r.node) nUnk++;
+    else if (ROLE[r.node] === 'border') nBord++;
+    else nLeaf++;
+  }
+  info.innerHTML = `
+    <span class="chip"><span class="k">src</span>${escHtml(d.vtep_src)}</span>
+    <span class="chip"><span class="k">remotes</span>${remotes.length}</span>
+    <span class="chip"><span class="k">VNIs</span>${(d.vnis || []).length}</span>
+    <span class="chip" style="max-width:580px"><span class="k">VNI list</span>${escHtml(vniList) || '—'}</span>
+    <span class="chip"><span class="k">UDP dst</span>4789</span>
+    <span class="chip" style="background:rgba(16,185,129,0.10);border-color:rgba(16,185,129,0.4);color:#a7f3d0"><span class="k">leaf VTEPs</span>${nLeaf}</span>
+    <span class="chip" style="background:rgba(236,72,153,0.10);border-color:rgba(236,72,153,0.4);color:#fbcfe8"><span class="k">border VTEPs</span>${nBord}</span>
+    ${nUnk ? `<span class="chip" style="background:rgba(107,114,128,0.10);border-color:rgba(107,114,128,0.4);color:#cbd5e1"><span class="k">unknown</span>${nUnk}</span>` : ''}
+  `;
+
+  if (!remotes.length) {
+    el.innerHTML = `<div class="vt-empty">No remote VTEPs learned yet (no EVPN Type-3 routes accepted). If other leaves are up, hit Refresh.</div>`;
+    return;
+  }
+
+  // Top-down hub layout: center on top, all remotes in one horizontal row below
+  const lines = [VTEP_INIT, 'flowchart TB'];
+  // Color classes — center cyan, leaf-VTEP green, border-VTEP pink, unknown gray
+  lines.push(`  classDef center fill:#082834,stroke:#22d3ee,stroke-width:4px,color:#cffafe`);
+  lines.push(`  classDef rleaf  fill:#053527,stroke:#10b981,stroke-width:2.5px,color:#d1fae5`);
+  lines.push(`  classDef rbord  fill:#3b0a25,stroke:#ec4899,stroke-width:2.5px,color:#fce7f3`);
+  lines.push(`  classDef runk   fill:#1f1f24,stroke:#6b7280,stroke-width:1.5px,color:#9ca3af,stroke-dasharray:4 3`);
+
+  // Center node
+  lines.push(`  ${vtepNode(d.node, d.vtep_src, true)}`);
+  lines.push(`  class ${nodeId(d.node)}_v center`);
+
+  // Subgraph wrapper to force all remotes onto a single horizontal row
+  lines.push(`  subgraph RMTS[" "]`);
+  lines.push(`    direction LR`);
+  for (const r of remotes) {
+    const remName = r.node || `vtep-${r.ip}`;
+    lines.push(`    ${vtepNode(remName, r.ip, false)}`);
+  }
+  lines.push(`  end`);
+
+  // Tunnels + classes
+  for (const r of remotes) {
+    const remName = r.node || `vtep-${r.ip}`;
+    lines.push(`  ${nodeId(d.node)}_v === ${nodeId(remName)}_v`);
+    let cls = 'runk';
+    if (r.node) {
+      const role = ROLE[r.node];
+      cls = (role === 'border') ? 'rbord' : (role === 'leaf') ? 'rleaf' : 'rleaf';
+    }
+    lines.push(`  class ${nodeId(remName)}_v ${cls}`);
+    if (r.node) {
+      lines.push(`  click ${nodeId(remName)}_v call openEgo("${r.node}") "Switch to ${r.node}"`);
+    }
+  }
+
+  renderMermaid('vtep-graph', lines.join('\n'));
+}
+
+function stateClass(s) { return s === 'Established' ? 'state-ok' : 'state-bad'; }
+
+function renderUdlTable(peers) {
+  if (!peers || !peers.length) return '<div class="empty-hint">No underlay peers.</div>';
+  const rows = peers.map(p => `
+    <tr>
+      <td class="iface">${escHtml(shortIf(p.local_iface) || '?')}</td>
+      <td>${escHtml(p.peer_ip)}</td>
+      <td class="node">${escHtml(p.peer_node || '?')}</td>
+      <td class="iface">${escHtml(shortIf(p.peer_iface) || '?')}</td>
+      <td>AS ${escHtml(p.peer_asn)}</td>
+      <td class="${stateClass(p.state)}">${escHtml(p.state)}</td>
+      <td><span class="muted">rx</span> ${p.prefixes_rx ?? '—'} <span class="muted">tx</span> ${p.prefixes_tx ?? '—'}</td>
+    </tr>`).join('');
+  return `<table class="peer">
+    <tr><th>Local</th><th>Peer IP</th><th>Peer</th><th>Peer IF</th><th>ASN</th><th>State</th><th>Prefixes</th></tr>
+    ${rows}</table>`;
+}
+
+function renderEvpTable(peers) {
+  if (!peers || !peers.length) return '<div class="empty-hint">No EVPN peers (this node is not in the overlay).</div>';
+  const rows = peers.map(p => `
+    <tr>
+      <td>${escHtml(p.peer_ip)}</td>
+      <td class="node">${escHtml(p.peer_node || '?')}</td>
+      <td>AS ${escHtml(p.peer_asn)}</td>
+      <td class="${stateClass(p.state)}">${escHtml(p.state)}</td>
+      <td><span class="muted">rx</span> ${p.prefixes_rx ?? '—'} <span class="muted">tx</span> ${p.prefixes_tx ?? '—'}</td>
+    </tr>`).join('');
+  return `<table class="peer">
+    <tr><th>Peer Lo0</th><th>Peer</th><th>ASN</th><th>State</th><th>EVPN routes</th></tr>
+    ${rows}</table>`;
+}
+
+function renderVniTable(vnis) {
+  if (!vnis || !vnis.length) return '<div class="empty-hint">No VNIs configured.</div>';
+  const rows = vnis.map(v => `
+    <tr>
+      <td>${escHtml(v.vni)}</td>
+      <td>VLAN ${escHtml(v.vlan)}</td>
+      <td class="iface">${escHtml((v.interfaces || []).map(shortIf).join(', '))}</td>
+    </tr>`).join('');
+  return `<table class="peer">
+    <tr><th>VNI</th><th>Mapped VLAN</th><th>Member interfaces</th></tr>
+    ${rows}</table>`;
+}
+
+function renderRVtepTable(vteps) {
+  if (!vteps || !vteps.length) return '<div class="empty-hint">No remote VTEPs learned (no EVPN type-3 yet, or not a VTEP).</div>';
+  const rows = vteps.map(v => `
+    <tr>
+      <td>${escHtml(v.ip)}</td>
+      <td class="node">${escHtml(v.node || '?')}</td>
+    </tr>`).join('');
+  return `<table class="peer">
+    <tr><th>Remote VTEP IP</th><th>Resolved node</th></tr>
+    ${rows}</table>`;
+}
+
+// ─── Fabric view rendering ────────────────────────────────────
+const FAB_INIT = `%%{init: {'theme':'base','themeVariables':{'fontFamily':'Inter, sans-serif','fontSize':'16px','background':'transparent','mainBkg':'#161a24','primaryBorderColor':'#3a4050','primaryColor':'#161a24','primaryTextColor':'#f1f5f9','lineColor':'#475569','edgeLabelBackground':'#0b0d12','clusterBkg':'transparent','clusterBorder':'#3a4050'},'flowchart':{'useMaxWidth':true,'htmlLabels':true,'curve':'basis','padding':38,'nodeSpacing':110,'rankSpacing':175}}}%%`;
+
+function richNode(name) {
+  const d = (cache && cache.nodes[name]) || {};
+  const asn = d.asn || '?';
+  const lo  = d.loopback || '';
+  const sub = lo ? `${asn} · ${lo}` : asn;
+  return `${nodeId(name)}(["<div style='padding:7px 6px;line-height:1.35'><b style='font-size:16px;letter-spacing:-0.01em'>${escHtml(name)}</b><br/><span style='font-family:JetBrains Mono;font-size:12px;color:#94a3b8'>${escHtml(sub)}</span></div>"])`;
+}
+
+function nodesAll() {
+  return [
+    {sub:"EXT", title:"🌐 EXTERNAL · Internet",    members:["frr-inet","isp-01","isp-02"]},
+    {sub:"T1",  title:"⚡ TIER-1 · Super-spines (EVPN RR — inter-pod)",
+                 members:["super-spine-01","super-spine-02"]},
+    {sub:"T2",  title:"TIER-2 · Pod-spines (EVPN RR — intra-pod)",
+                 children:[
+                   {sub:"T2A", title:"Pod-1", members:["spine-01","spine-02"]},
+                   {sub:"T2B", title:"Pod-2", members:["spine-03","spine-04"]},
+                 ]},
+    {sub:"T3",  title:"TIER-3 · Leaves (VTEPs)",
+                 children:[
+                   {sub:"T3A", title:"Pod-1 (incl. borders)",
+                    members:["border-leaf-01","border-leaf-02",
+                             "leaf-01","leaf-02","leaf-03","leaf-04"]},
+                   {sub:"T3B", title:"Pod-2",
+                    members:["leaf-05","leaf-06","leaf-07","leaf-08"]},
+                 ]},
+  ];
+}
+
+function emitGroup(g, lines, indent, includeNode) {
+  const pad = '  '.repeat(indent);
+  lines.push(`${pad}subgraph ${g.sub}["${g.title}"]`);
+  lines.push(`${pad}  direction LR`);
+  if (g.children) {
+    for (const c of g.children) emitGroup(c, lines, indent + 1, includeNode);
+  } else {
+    for (const m of (g.members || [])) {
+      if (includeNode(m)) lines.push(`${pad}  ${richNode(m)}`);
+    }
+  }
+  lines.push(`${pad}end`);
+}
+
+function computeFabStats(c) {
+  const u = c.sessions.underlay, e = c.sessions.evpn;
+  const uEst = u.filter(s => s.state === 'Established').length;
+  const eEst = e.filter(s => s.state === 'Established').length;
+  let vteps = new Set(), vnis = new Set();
+  let evpnRoutesTotal = 0, underlayRoutesTotal = 0;
+  let leafCount = 0;
+  for (const [n, d] of Object.entries(c.nodes)) {
+    if (d.vtep_src) vteps.add(d.vtep_src);
+    for (const v of d.vnis || []) vnis.add(v.vni);
+    for (const p of d.evpn_peers || []) evpnRoutesTotal += (p.prefixes_rx || 0);
+    for (const p of d.underlay_peers || []) underlayRoutesTotal += (p.prefixes_rx || 0);
+    if (ROLE[n] === 'leaf' || ROLE[n] === 'border') leafCount++;
+  }
+  return {
+    routers: Object.keys(c.nodes).length,
+    underlay: u.length, underlayEst: uEst,
+    evpn: e.length, evpnEst: eEst,
+    vteps: vteps.size, vnis: vnis.size,
+    evpnAggRx: evpnRoutesTotal,
+    underlayAggRx: underlayRoutesTotal,
+    leaves: leafCount,
+  };
+}
+
+function fmtNum(n) {
+  if (n >= 1000) return (n/1000).toFixed(1).replace(/\.0$/,'') + 'k';
+  return String(n);
+}
+
+function renderStats() {
+  if (!cache) return;
+  const s = computeFabStats(cache);
+  const cards = [
+    { cls: 's1', k: 'Fabric routers', v: `${s.routers}` },
+    { cls: 's2', k: 'Underlay sessions',
+      v: `${s.underlay}<span class="small ${s.underlay===s.underlayEst?'ok':'bad'}">  ${s.underlayEst} up</span>` },
+    { cls: 's3', k: 'EVPN sessions',
+      v: `${s.evpn}<span class="small ${s.evpn===s.evpnEst?'ok':'bad'}">  ${s.evpnEst} up</span>` },
+    { cls: 's4', k: 'Active VTEPs', v: `${s.vteps}<span class="small">leaves+borders</span>` },
+    { cls: 's5', k: 'Unique VNIs', v: `${s.vnis}<span class="small">across tenants</span>` },
+    { cls: 's6', k: 'EVPN routes Σrx', v: `${fmtNum(s.evpnAggRx)}<span class="small">all leaves</span>` },
+  ];
+  document.getElementById('fab-stats').innerHTML = cards.map(c =>
+    `<div class="stat-card ${c.cls}"><div class="v">${c.v}</div><div class="k">${c.k}</div></div>`
+  ).join('');
+}
+
+function renderFab() {
+  if (!cache) return;
+  renderStats();
+  const sessions = cache.sessions[fabMode === 'underlay' ? 'underlay' : 'evpn'] || [];
+  document.getElementById('fab-count').textContent =
+    `${sessions.length} ${fabMode === 'underlay' ? 'eBGP underlay' : 'EVPN multihop'} sessions`;
+
+  const root = document.getElementById('view-fab');
+  root.classList.toggle('underlay', fabMode === 'underlay');
+  root.classList.toggle('overlay',  fabMode === 'evpn');
+
+  if (!sessions.length) {
+    document.getElementById('fab-graph').innerHTML =
+      '<div class="graph-empty">No sessions in cache yet. Click Refresh.</div>';
+    return;
+  }
+
+  const participants = new Set();
+  for (const s of sessions) { participants.add(s.a); participants.add(s.b); }
+
+  const groups = nodesAll();
+  const visibleGroups = (fabMode === 'underlay')
+    ? groups
+    : groups.filter(g => g.sub !== 'EXT');
+
+  const lines = [FAB_INIT, 'flowchart TB', ROLE_STYLES];
+  for (const g of visibleGroups) {
+    emitGroup(g, lines, 1, (n) => participants.has(n));
+  }
+
+  // Edges — track index so we can color down sessions with linkStyle
+  const downIdxs = [];
+  let idx = 0;
+  for (const s of sessions) {
+    if (fabMode === 'underlay') {
+      const lbl = `${shortIf(s.a_iface) || '?'} ↔ ${shortIf(s.b_iface) || '?'}`;
+      lines.push(`  ${nodeId(s.a)} ---|"${lbl}"| ${nodeId(s.b)}`);
+    } else {
+      lines.push(`  ${nodeId(s.a)} -.- ${nodeId(s.b)}`);
+    }
+    if (s.state !== 'Established') downIdxs.push(idx);
+    idx++;
+  }
+  if (downIdxs.length) {
+    lines.push(`  linkStyle ${downIdxs.join(',')} stroke:#ef4444,stroke-width:3px,stroke-dasharray:4 3`);
+  }
+
+  // Classes + click handlers (jump to ego view)
+  for (const n of participants) {
+    const cls = ROLE_CLASS[ROLE[n]] || 'tier3';
+    lines.push(`  class ${nodeId(n)} ${cls}`);
+    lines.push(`  click ${nodeId(n)} call openEgo("${n}") "Open ego view for ${n}"`);
+  }
+
+  renderMermaid('fab-graph', lines.join('\n'));
+}
+
+window.openEgo = function(name) {
+  const sel = document.getElementById('node-select');
+  if (sel) {
+    sel.value = name;
+    setView('ego');
+    renderEgo();
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  }
+};
+
+// ─── Init ────────────────────────────────────────────────────
+document.getElementById('refresh-btn').addEventListener('click', refresh);
+buildNodeSelect();
+loadInitial();
+</script>
+{% endblock %}

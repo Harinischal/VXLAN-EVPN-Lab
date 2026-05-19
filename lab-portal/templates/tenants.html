@@ -1,0 +1,299 @@
+{% extends "base.html" %}
+{% block title %}Tenants · Lab Portal{% endblock %}
+{% block head %}
+<style>
+  .t-toolbar {
+    display: flex; align-items: center; gap: 14px;
+    margin-bottom: 18px; flex-wrap: wrap;
+  }
+  .t-toolbar .meta {
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    color: var(--text-mute);
+  }
+  .t-toolbar .meta.stale { color: var(--amber); }
+  .t-toolbar .spacer { flex: 1; }
+
+  .tenant-grid {
+    display: grid; grid-template-columns: 1fr; gap: 18px;
+  }
+
+  .tenant-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 22px;
+    position: relative; overflow: hidden;
+  }
+  .tenant-card.t1 {
+    background:
+      radial-gradient(ellipse 700px 220px at 50% 0%, rgba(99,102,241,0.10), transparent 60%),
+      var(--panel);
+    border-color: rgba(99,102,241,0.25);
+  }
+  .tenant-card.t2 {
+    background:
+      radial-gradient(ellipse 700px 220px at 50% 0%, rgba(245,158,11,0.10), transparent 60%),
+      var(--panel);
+    border-color: rgba(245,158,11,0.25);
+  }
+  .tenant-card.t3 {
+    background:
+      radial-gradient(ellipse 700px 220px at 50% 0%, rgba(236,72,153,0.10), transparent 60%),
+      var(--panel);
+    border-color: rgba(236,72,153,0.25);
+  }
+
+  .tenant-head {
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .tenant-head h2 {
+    margin: 0; font-size: 24px; font-weight: 700; color: var(--text);
+    text-transform: none; letter-spacing: -0.02em;
+  }
+  .tenant-head .vrf-tag {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    color: var(--text-mute);
+    padding: 3px 9px; background: var(--panel-soft);
+    border: 1px solid var(--border); border-radius: 99px;
+  }
+  .tenant-head .badge-int {
+    background: rgba(16,185,129,0.12); color: #6ee7b7;
+    border: 1px solid rgba(16,185,129,0.35);
+    padding: 3px 9px; border-radius: 99px;
+    font-size: 11px; font-weight: 600;
+  }
+  .tenant-head .badge-iso {
+    background: rgba(148,163,184,0.10); color: #cbd5e1;
+    border: 1px solid rgba(148,163,184,0.30);
+    padding: 3px 9px; border-radius: 99px;
+    font-size: 11px; font-weight: 600;
+  }
+  .tenant-card .blurb {
+    color: var(--text-soft); font-size: 13px;
+    margin-bottom: 16px;
+  }
+
+  /* Sub-sections inside tenant card */
+  .t-section {
+    margin-top: 14px;
+    background: rgba(0,0,0,0.18);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+  }
+  .t-section h4 {
+    margin: 0 0 10px 0; font-size: 11px; font-weight: 700;
+    color: var(--text-mute);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    display: flex; align-items: center; gap: 7px;
+  }
+  .t-section h4 .acc-i { color: var(--indigo); }
+  .t-section h4 .acc-a { color: var(--amber); }
+  .t-section h4 .acc-p { color: var(--pink); }
+  .t-section h4 .acc-c { color: var(--cyan); }
+  .t-section h4 .acc-e { color: var(--emerald); }
+
+  /* VLAN/VNI strip */
+  .vlan-strip {
+    display: flex; gap: 10px; flex-wrap: wrap;
+  }
+  .vlan-pill {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; color: var(--text);
+    display: grid; grid-template-columns: auto auto; gap: 4px 14px;
+    align-items: baseline;
+  }
+  .vlan-pill .k { color: var(--text-mute); font-size: 10.5px;
+    text-transform: uppercase; letter-spacing: 0.05em; }
+  .vlan-pill .v { color: var(--text); font-weight: 600; }
+  .vlan-pill .v.gw { color: #67e8f9; }
+
+  /* Leaf state grid */
+  .leaf-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+  }
+  .leaf-cell {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 9px; padding: 10px 12px;
+    font-family: 'JetBrains Mono', monospace; font-size: 11.5px;
+    position: relative;
+  }
+  .leaf-cell .lname {
+    color: var(--text); font-weight: 700; font-size: 12.5px;
+    margin-bottom: 4px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .leaf-cell .lname .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--text-dim);
+  }
+  .leaf-cell.up .lname .dot {
+    background: var(--emerald); box-shadow: 0 0 8px var(--emerald);
+  }
+  .leaf-cell.down .lname .dot {
+    background: var(--rose); box-shadow: 0 0 8px var(--rose);
+  }
+  .leaf-cell .row {
+    display: flex; justify-content: space-between;
+    color: var(--text-mute); font-size: 11px;
+  }
+  .leaf-cell .row .v { color: var(--text); }
+  .leaf-cell.empty { opacity: 0.4; }
+
+  /* Hosts grid */
+  .hosts-strip {
+    display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  .host-chip {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 4px 9px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--text-soft);
+    text-decoration: none; transition: all 0.15s;
+  }
+  .host-chip:hover { border-color: var(--indigo); color: var(--text); }
+  .host-chip .leaf-lbl { color: var(--text-dim); margin-left: 5px; font-size: 10px; }
+
+  .stale-banner {
+    background: rgba(245,158,11,0.10); border: 1px solid rgba(245,158,11,0.30);
+    color: #fcd34d; padding: 10px 14px; border-radius: 10px;
+    margin-bottom: 14px; font-size: 13px;
+  }
+
+  .loading {
+    position: fixed; top: 70px; right: 24px;
+    background: var(--panel); border: 1px solid var(--border);
+    padding: 10px 16px; border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    color: var(--text-soft); display: none; z-index: 200;
+    box-shadow: var(--shadow-md);
+  }
+  .loading.show { display: block; }
+</style>
+{% endblock %}
+{% block content %}
+
+<h1>Tenants</h1>
+<div class="sub">Static lab facts + live VRF state per leaf. Each tenant is a routed isolation domain (VRF) with one or more L2 segments (VLAN ↔ VNI).</div>
+
+<div class="t-toolbar">
+  <button id="refresh-btn">Refresh now</button>
+  <span class="meta" id="meta">No data yet — click Refresh to fetch per-leaf VRF state</span>
+  <div class="spacer"></div>
+</div>
+
+<div class="tenant-grid">
+{% for t in tenants %}
+  <div class="tenant-card t{{ loop.index }}" id="tcard-{{ t.name }}">
+    <div class="tenant-head">
+      <h2>{{ t.name }}</h2>
+      <span class="vrf-tag">VRF {{ t.vrf }}</span>
+      {% if t.internet %}
+        <span class="badge-int">🌐 internet egress</span>
+      {% else %}
+        <span class="badge-iso">isolated</span>
+      {% endif %}
+    </div>
+    <div class="blurb">{{ t.blurb }}</div>
+
+    <div class="t-section">
+      <h4><span class="acc-i">▸</span> L2 segments — VLAN · VNI · subnet · anycast GW</h4>
+      <div class="vlan-strip">
+        {% for v in t.vlans %}
+        <div class="vlan-pill">
+          <span class="k">vlan</span><span class="v">{{ v.vlan }}</span>
+          <span class="k">vni</span><span class="v">{{ v.vni }}</span>
+          <span class="k">subnet</span><span class="v">{{ v.subnet }}</span>
+          <span class="k">anycast gw</span><span class="v gw">{{ v.gw }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="t-section">
+      <h4><span class="acc-e">▸</span> VRF state on each leaf (RD · interfaces · routes)</h4>
+      <div class="leaf-grid" id="leafgrid-{{ t.name }}">
+        {% for l in leaves %}
+        <div class="leaf-cell empty" data-leaf="{{ l }}" data-tenant="{{ t.name }}">
+          <div class="lname"><span class="dot"></span>{{ l }}</div>
+          <div class="row"><span>RD</span><span class="v">—</span></div>
+          <div class="row"><span>ifaces</span><span class="v">—</span></div>
+          <div class="row"><span>BGP routes</span><span class="v">—</span></div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="t-section">
+      <h4><span class="acc-c">▸</span> Hosts ({{ hosts_by[t.name]|length }}) — by leaf</h4>
+      <div class="hosts-strip">
+        {% for h in hosts_by[t.name] %}
+          <a class="host-chip" href="/term/{{ h.pc }}" target="_blank">
+            {{ h.pc }}<span class="leaf-lbl">{{ h.leaf }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{% endfor %}
+</div>
+
+<div class="loading" id="loading">querying every leaf's VRF state…</div>
+
+<script>
+async function refresh() {
+  const btn = document.getElementById('refresh-btn');
+  const meta = document.getElementById('meta');
+  const loading = document.getElementById('loading');
+  btn.disabled = true; btn.textContent = 'Refreshing…'; loading.classList.add('show');
+  try {
+    const r = await fetch('/tenants/refresh', { method: 'POST' });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'failed');
+    meta.classList.remove('stale');
+    meta.textContent = `Last refresh ${j.ts_human}`;
+    applyData(j.data);
+  } catch (e) {
+    meta.textContent = 'Refresh error: ' + e.message;
+    meta.classList.add('stale');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Refresh now'; loading.classList.remove('show');
+  }
+}
+
+async function loadInitial() {
+  try {
+    const r = await fetch('/tenants/data');
+    const j = await r.json();
+    if (j.ok && j.data) {
+      const meta = document.getElementById('meta');
+      meta.textContent = `Last refresh ${j.ts_human} (${j.age_sec}s ago)`;
+      if (j.age_sec > 300) meta.classList.add('stale');
+      applyData(j.data);
+    }
+  } catch (e) { /* ignore */ }
+}
+
+function applyData(data) {
+  for (const [tname, byleaf] of Object.entries(data)) {
+    for (const [leaf, st] of Object.entries(byleaf)) {
+      const cell = document.querySelector(
+        `.leaf-cell[data-tenant="${tname}"][data-leaf="${leaf}"]`);
+      if (!cell) continue;
+      cell.classList.remove('empty', 'up', 'down');
+      const isUp = st.state === 'up';
+      cell.classList.add(isUp ? 'up' : 'down');
+      const rows = cell.querySelectorAll('.row .v');
+      rows[0].textContent = st.rd || '—';
+      rows[1].textContent = (st.ifaces ?? '—') + '';
+      rows[2].textContent = (st.bgp ?? '—') + '';
+    }
+  }
+}
+
+document.getElementById('refresh-btn').addEventListener('click', refresh);
+loadInitial();
+</script>
+{% endblock %}

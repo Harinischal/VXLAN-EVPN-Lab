@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Packet capture · Lab Portal{% endblock %}
+{% block head %}
+<style>
+  form { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 11px; color: var(--text-mute); text-transform: uppercase; letter-spacing: 0.07em; font-weight: 600; }
+  .spinner { display: none; color: var(--indigo); font-size: 13px; font-weight: 500; }
+  .spinner.active { display: inline; }
+  .download {
+    background: linear-gradient(135deg, var(--emerald) 0%, #14b8a6 100%);
+    color: #fff; padding: 11px 22px; border-radius: 9px;
+    text-decoration: none; font-weight: 600; display: inline-block; margin-top: 14px;
+    box-shadow: var(--shadow-sm); transition: all 0.15s;
+  }
+  .download:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+  #live-cmd {
+    background: #0f172a; padding: 16px 18px; border-radius: 10px;
+    border: 1px solid #1e293b;
+    font-family: 'JetBrains Mono', monospace; font-size: 12.5px;
+    word-break: break-all; line-height: 1.65; color: #6ee7b7; margin-top: 12px;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
+  }
+  .copy-btn {
+    background: var(--panel); border: 1px solid var(--border-strong);
+    color: var(--text-soft); padding: 7px 16px; font-size: 12px;
+    border-radius: 7px; cursor: pointer; margin-left: 10px;
+    box-shadow: var(--shadow-sm); transition: all 0.15s;
+  }
+  .copy-btn:hover { color: var(--indigo); border-color: var(--indigo); }
+</style>
+{% endblock %}
+{% block content %}
+<h1>Packet capture</h1>
+<div class="sub">EVE-NG-style — capture from any interface, get a .pcap or live-stream into Wireshark</div>
+
+<div class="panel">
+  <h2 style="margin-top: 0;">Quick capture · download .pcap</h2>
+  <form id="cap">
+    <div class="field">
+      <label>Node</label>
+      <select name="node" id="node">
+        <optgroup label="routers">
+          {% for r in routers %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+        </optgroup>
+        <optgroup label="hosts (interface is always eth1)">
+          {% for h in hosts %}<option value="{{ h }}">{{ h }}</option>{% endfor %}
+        </optgroup>
+      </select>
+    </div>
+    <div class="field">
+      <label>Interface</label>
+      <select name="iface" id="iface">
+        {% for i in ifaces %}<option value="{{ i }}">{{ i }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label>Seconds (max 120)</label>
+      <input type="number" name="seconds" id="seconds" min="1" max="120" value="30">
+    </div>
+    <button type="submit" id="cap-btn">Start capture</button>
+    <span class="spinner" id="spin">capturing…</span>
+  </form>
+  <div id="status" style="margin-top: 14px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text-mute);"></div>
+  <div id="result"></div>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top: 0;">Live capture · stream into local Wireshark</h2>
+  <div style="color: var(--text-soft); font-size: 13px; margin-bottom: 12px;">
+    Pick a node + interface, click <b>Generate</b>, copy the command, paste into your local terminal
+    (where Wireshark is installed). Wireshark opens live with the stream.
+  </div>
+  <form id="live-form">
+    <div class="field">
+      <label>Node</label>
+      <select id="live-node">
+        {% for r in routers %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+        {% for h in hosts %}<option value="{{ h }}">{{ h }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label>Interface</label>
+      <select id="live-iface">
+        {% for i in ifaces %}<option value="{{ i }}">{{ i }}</option>{% endfor %}
+      </select>
+    </div>
+    <button type="submit">Generate command</button>
+  </form>
+  <div id="live-cmd" style="display:none;"></div>
+  <button class="copy-btn" id="copy-btn" style="display:none;">Copy</button>
+  <div style="margin-top: 14px; color: var(--text-mute); font-size: 12px;">
+    Wireshark must be installed locally · works on Linux/Mac out of the box · on Windows install
+    <a href="https://www.wireshark.org/download.html" style="color: var(--accent);">Wireshark + add to PATH</a>
+  </div>
+</div>
+
+<script>
+const capForm  = document.getElementById('cap');
+const status   = document.getElementById('status');
+const result   = document.getElementById('result');
+const spin     = document.getElementById('spin');
+const btn      = document.getElementById('cap-btn');
+
+capForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const node    = document.getElementById('node').value;
+  const iface   = document.getElementById('iface').value;
+  const seconds = document.getElementById('seconds').value;
+
+  status.textContent = `capturing ${node}:${iface} for ${seconds}s…`;
+  result.innerHTML = '';
+  spin.classList.add('active');
+  btn.disabled = true;
+  const t0 = Date.now();
+  try {
+    const r = await fetch('/cap/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({node, iface, seconds})
+    });
+    const j = await r.json();
+    const dt = ((Date.now() - t0)/1000).toFixed(1);
+    if (!j.ok) {
+      status.textContent = `error · ${dt}s · ${j.error}`;
+      if (j.capture_log) result.innerHTML = `<pre style="margin-top:10px;">${j.capture_log}</pre>`;
+    } else {
+      status.textContent = `done · ${dt}s · ${j.filename} (${j.size} bytes)`;
+      result.innerHTML = `<a class="download" href="/cap/download/${j.filename}">⬇ Download ${j.filename}</a>` +
+                        `<pre style="margin-top:10px;">${j.capture_log || ''}</pre>`;
+    }
+  } catch (err) {
+    status.textContent = 'fetch failed: ' + err;
+  } finally {
+    spin.classList.remove('active');
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('live-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const node  = document.getElementById('live-node').value;
+  const iface = document.getElementById('live-iface').value;
+  const r = await fetch(`/cap/live/${node}/${iface}`);
+  const j = await r.json();
+  const box = document.getElementById('live-cmd');
+  box.textContent = j.cmd;
+  box.style.display = 'block';
+  const cp = document.getElementById('copy-btn');
+  cp.style.display = 'inline-block';
+  cp.onclick = () => { navigator.clipboard.writeText(j.cmd); cp.textContent = '✓ Copied'; setTimeout(()=>cp.textContent='Copy',1500); };
+});
+</script>
+{% endblock %}
